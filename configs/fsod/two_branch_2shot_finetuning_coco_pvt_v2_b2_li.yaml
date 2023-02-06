@@ -5,7 +5,7 @@ MODEL:
   WEIGHTS: "./output/fsod/two_branch_training_coco_pvt_v2_b2_li/model_final.pth"
   MASK_ON: False
   RESNETS:
-    DEPTH: 101
+    DEPTH: 50
   BACKBONE:
     FREEZE_AT: 4
     NAME: "build_FCT_backbone"
@@ -20,7 +20,7 @@ DATASETS:
   TRAIN: ("coco_2014_train_full_2_shot",)
   TEST: ("coco_2014_val",)
 SOLVER:
-  IMS_PER_BATCH: 8
+  IMS_PER_BATCH: 2
   BASE_LR: 0.0002
   STEPS: (3000, 5000)
   MAX_ITER: 5000

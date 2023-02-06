@@ -5,7 +5,7 @@ MODEL:
   WEIGHTS: "./output/fsod/single_branch_pretraining_pascalvoc_split1_pvt_v2_b2_li/model_final.pth"
   MASK_ON: False
   RESNETS:
-    DEPTH: 101
+    DEPTH: 50
   BACKBONE:
     FREEZE_AT: 1
     NAME: "build_FCT_backbone"
@@ -20,19 +20,19 @@ DATASETS:
   TRAIN: ("voc_2007_trainval_base1", "voc_2012_trainval_base1")
   TEST: ("voc_2007_test_all1",)
   TEST_KEEPCLASSES: 'all1'
-  TEST_SHOTS: (1,2,3,5,10)
+  TEST_SHOTS: (1,2,3,5)
 INPUT:
   FS:
     SUPPORT_WAY: 2
-    SUPPORT_SHOT: 30
-  MIN_SIZE_TRAIN: (480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800)
-  MAX_SIZE_TRAIN: 1333
+    SUPPORT_SHOT: 10
+  MIN_SIZE_TRAIN: (100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100)
+  MAX_SIZE_TRAIN: 200
   MIN_SIZE_TEST: 600
   MAX_SIZE_TEST: 1000
 SOLVER:
-  IMS_PER_BATCH: 8
+  IMS_PER_BATCH: 2
   BASE_LR: 0.00002
-  STEPS: (7500, 10000)
+  STEPS: (7500, 9999)  
   MAX_ITER: 10000
   WARMUP_ITERS: 500
   WARMUP_FACTOR: 0.1

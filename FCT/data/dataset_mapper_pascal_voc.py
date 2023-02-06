@@ -249,6 +249,7 @@ class DatasetMapperWithSupportVOC:
             assert support_db['id'].values[0] == support_id
             
             support_data = utils.read_image("./datasets/pascal_voc/" + support_db["file_path"].tolist()[0], format=self.img_format)
+            #support_data = utils.read_image(support_db["file_path"].tolist()[0], format=self.img_format)
             support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
             support_box = support_db['support_box'].tolist()[0]
             # print('support_data.shape=', support_data.shape)
@@ -283,6 +284,7 @@ class DatasetMapperWithSupportVOC:
                     assert support_db['id'].values[0] == support_id
 
                     support_data = utils.read_image("./datasets/pascal_voc/" + support_db["file_path"].tolist()[0], format=self.img_format)
+                    #support_data = utils.read_image(support_db["file_path"].tolist()[0], format=self.img_format)
                     support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
                     support_box = support_db['support_box'].tolist()[0]
                     support_data_all[mixup_i] = support_data
