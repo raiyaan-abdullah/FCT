@@ -7,7 +7,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
+import torch.nn.init as init
+from torch.autograd import Variable
 import math
+
+from model.utils.config import cfg
+from model.rpn.rpn import _RPN
+from model.roi_layers import ROIAlign, ROIPool
+from model.rpn.proposal_target_layer_cascade import _ProposalTargetLayer
+from model.utils.net_utils import _smooth_l1_loss, _crop_pool_layer, _affine_grid_gen, _affine_theta
+from model.framework.resnet import resnet50
 
 from timm.models.layers import to_2tuple, trunc_normal_
 # from mmdet.utils import get_root_logger
@@ -221,6 +230,302 @@ class Attention(nn.Module):
         y = self.proj_drop(y)
 
         return x, y #torch.cat((x, y), dim=1)
+
+# From Dual-awareness-Attention-for-Few-shot-Object-Detection
+class PositionalEncoding(nn.Module):
+    "Implement the PE function."
+    def __init__(self, d_model=1024, max_len=49):
+        super(PositionalEncoding, self).__init__()
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0., max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0., d_model, 2) *
+                             -(math.log(10000.0) / float(d_model)))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.pe = Variable(pe.unsqueeze(0), requires_grad=False)
+
+    def forward(self, x):
+        x = x + self.pe.to(x.device)
+        return 
+
+class FFN(nn.Module):
+    def __init__(self, in_channel, hidden, drop_prob=0.1):
+        super(FFN, self).__init__()
+        self.linear1 = nn.Linear(in_channel, hidden)
+        self.linear2 = nn.Linear(hidden, 2)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.relu(x)
+        x = self.linear2(x)
+        return 
+
+class BA_CISA(nn.Module):
+    def __init__(self, classes, attention_type, rpn_reduce_dim, rcnn_reduce_dim, gamma, semantic_enhance, n_way=2, n_shot=5, pos_encoding=True):
+        super().__init__()
+        # assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        # self.dim = dim
+        # self.num_heads = num_heads
+        # head_dim = dim // num_heads
+        # self.scale = qk_scale or head_dim ** -0.5
+
+        # self.q = nn.Linear(dim, dim, bias=qkv_bias)
+        # self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        # self.attn_drop = nn.Dropout(attn_drop)
+        # self.proj = nn.Linear(dim, dim)
+        # self.proj_drop = nn.Dropout(proj_drop)
+
+        # self.linear = linear
+        # self.sr_ratio = sr_ratio
+        # if not linear:
+        #     if sr_ratio > 1:
+        #         self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
+        #         self.norm = nn.LayerNorm(dim)
+        # else:
+        #     self.pool = nn.AdaptiveAvgPool2d(7)
+        #     self.sr = nn.Conv2d(dim, dim, kernel_size=1, stride=1)
+        #     self.norm = nn.LayerNorm(dim)
+        #     self.act = nn.GELU()
+        self.classes = classes
+        self.n_classes = len(classes)
+        self.n_way = n_way
+        self.n_shot = n_shot
+        self.attention_type = attention_type
+        self.channel_gamma = gamma
+        self.unary_gamma = 0.1
+        self.semantic_enhance = semantic_enhance
+        self.rpn_reduce_dim = rpn_reduce_dim
+        self.rcnn_reduce_dim = rcnn_reduce_dim
+        # loss
+        self.RCNN_loss_cls = 0
+        self.RCNN_loss_bbox = 0
+        # pooling or align
+        self.RCNN_roi_pool = ROIPool((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0/16.0)
+        self.RCNN_roi_align = ROIAlign((cfg.POOLING_SIZE, cfg.POOLING_SIZE), 1.0/16.0, 0)
+        # few shot rcnn head
+        self.pool_feat_dim = 1024
+        self.rcnn_dim = 64
+        self.avgpool = nn.AvgPool2d(14, stride=1)
+        dim_in = self.pool_feat_dim
+        ################
+        self.rpn_unary_layer = nn.Linear(dim_in, 1)
+        init.normal_(self.rpn_unary_layer.weight, std=0.01)
+        init.constant_(self.rpn_unary_layer.bias, 0)
+        self.rcnn_unary_layer = nn.Linear(dim_in, 1)
+        init.normal_(self.rcnn_unary_layer.weight, std=0.01)
+        init.constant_(self.rcnn_unary_layer.bias, 0)
+
+        self.rpn_adapt_q_layer = nn.Linear(dim_in, rpn_reduce_dim)
+        init.normal_(self.rpn_adapt_q_layer.weight, std=0.01)
+        init.constant_(self.rpn_adapt_q_layer.bias, 0)
+        self.rpn_adapt_k_layer = nn.Linear(dim_in, rpn_reduce_dim)
+        init.normal_(self.rpn_adapt_k_layer.weight, std=0.01)
+        init.constant_(self.rpn_adapt_k_layer.bias, 0)
+
+        self.rcnn_adapt_q_layer = nn.Linear(dim_in, rcnn_reduce_dim)
+        init.normal_(self.rcnn_adapt_q_layer.weight, std=0.01)
+        init.constant_(self.rcnn_adapt_q_layer.bias, 0)
+        self.rcnn_adapt_k_layer = nn.Linear(dim_in, rcnn_reduce_dim)
+        init.normal_(self.rcnn_adapt_k_layer.weight, std=0.01)
+        init.constant_(self.rcnn_adapt_k_layer.bias, 0)
+
+        if self.semantic_enhance:
+            self.rpn_channel_k_layer = nn.Linear(dim_in, 1)
+            init.normal_(self.rpn_channel_k_layer.weight, std=0.01)
+            init.constant_(self.rpn_channel_k_layer.bias, 0)
+        
+        self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
+        if self.attention_type == 'concat':
+            self.RCNN_rpn = _RPN(2048)
+            self.rcnn_transform_layer = nn.Linear(2048, self.rcnn_dim)
+        elif self.attention_type == 'product':
+            self.RCNN_rpn = _RPN(1024)
+            self.rcnn_transform_layer = nn.Linear(1024, self.rcnn_dim)
+
+        self.output_score_layer = FFN(64* 49, dim_in)
+        # positional encoding
+        self.pos_encoding = pos_encoding
+        if pos_encoding:
+            self.pos_encoding_layer = PositionalEncoding()
+            self.rpn_pos_encoding_layer = PositionalEncoding(max_len=400)
+
+        # self.apply(self._init_weights)
+
+    # def _init_weights(self, m):
+    #     if isinstance(m, nn.Linear):
+    #         trunc_normal_(m.weight, std=.02)
+    #         if isinstance(m, nn.Linear) and m.bias is not None:
+    #             nn.init.constant_(m.bias, 0)
+    #     elif isinstance(m, nn.LayerNorm):
+    #         nn.init.constant_(m.bias, 0)
+    #         nn.init.constant_(m.weight, 1.0)
+    #     elif isinstance(m, nn.Conv2d):
+    #         fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+    #         fan_out //= m.groups
+    #         m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+    #         if m.bias is not None:
+    #             m.bias.data.zero_()
+
+    def forward(self, im_data, im_info, gt_boxes, num_boxes, support_ims, all_cls_gt_boxes=None):
+        # B_x, N_x, C_x = x.shape
+        # B_y, N_y, C_y = y.shape
+        # assert B_x == 1 or B_y == 1
+        # # assert B_y == 1
+        # q_x = self.q(x).reshape(B_x, N_x, self.num_heads, C_x // self.num_heads).permute(0, 2, 1, 3)
+        # q_y = self.q(y).reshape(B_y, N_y, self.num_heads, C_y // self.num_heads).permute(0, 2, 1, 3)
+        # # print("q_x.shape={}, q_y.shape={}".format(q_x.shape, q_y.shape))
+
+        # if not self.linear:
+        #     if self.sr_ratio > 1:
+        #         x_ = x.permute(0, 2, 1).reshape(B_x, C_x, H_x, W_x)
+        #         x_ = self.sr(x_).reshape(B_x, C_x, -1).permute(0, 2, 1)
+        #         x_ = self.norm(x_)
+        #         kv_x = self.kv(x_).reshape(B_x, -1, 2, self.num_heads, C_x // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        #         y_ = y.permute(0, 2, 1).reshape(B_y, C_y, H_y, W_y)
+        #         y_ = self.sr(y_).reshape(B_y, C_y, -1).permute(0, 2, 1)
+        #         y_ = self.norm(y_)
+        #         kv_y = self.kv(y_).reshape(B_y, -1, 2, self.num_heads, C_y // self.num_heads).permute(2, 0, 3, 1, 4)
+        #     else:
+        #         kv_x = self.kv(x).reshape(B_x, -1, 2, self.num_heads, C_x // self.num_heads).permute(2, 0, 3, 1, 4)
+        #         kv_y = self.kv(y).reshape(B_y, -1, 2, self.num_heads, C_y // self.num_heads).permute(2, 0, 3, 1, 4)
+        # else:
+        #     x_ = x.permute(0, 2, 1).reshape(B_x, C_x, H_x, W_x)
+        #     x_ = self.sr(self.pool(x_)).reshape(B_x, C_x, -1).permute(0, 2, 1)
+        #     x_ = self.norm(x_)
+        #     x_ = self.act(x_)
+        #     kv_x = self.kv(x_).reshape(B_x, -1, 2, self.num_heads, C_x // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        #     y_ = y.permute(0, 2, 1).reshape(B_y, C_y, H_y, W_y)
+        #     y_ = self.sr(self.pool(y_)).reshape(B_y, C_y, -1).permute(0, 2, 1)
+        #     y_ = self.norm(y_)
+        #     y_ = self.act(y_)
+        #     kv_y = self.kv(y_).reshape(B_y, -1, 2, self.num_heads, C_y // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        # k_x, v_x = kv_x[0], kv_x[1]
+        # k_y, v_y = kv_y[0], kv_y[1]
+        # # print("k_x.shape={}, k_y.shape={}".format(k_x.shape, k_y.shape))
+        # # print("v_x.shape={}, v_y.shape={}".format(v_x.shape, v_y.shape))
+
+        # if B_x == 1:
+        #     k_y_avg = k_y.mean(0, True)
+        #     v_y_avg = v_y.mean(0, True)
+        #     k_cat_x = torch.cat((k_x, k_y_avg), dim=2)
+        #     v_cat_x = torch.cat((v_x, v_y_avg), dim=2)
+        # elif B_y == 1:
+        #     k_y_ext = k_y.repeat(B_x, 1, 1, 1)
+        #     v_y_ext = v_y.repeat(B_x, 1, 1, 1)
+        #     k_cat_x = torch.cat((k_x, k_y_ext), dim=2)
+        #     v_cat_x = torch.cat((v_x, v_y_ext), dim=2)
+
+        # # print("k_cat.shape={}, v_cat.shape={}".format(k_cat.shape, v_cat.shape))
+
+        # attn_x = (q_x @ k_cat_x.transpose(-2, -1)) * self.scale
+        # attn_x = attn_x.softmax(dim=-1)
+        # attn_x = self.attn_drop(attn_x)
+
+        # x = (attn_x @ v_cat_x).transpose(1, 2).reshape(B_x, N_x, C_x)
+        # x = self.proj(x)
+        # x = self.proj_drop(x)
+
+        # if B_x == 1:
+        #     k_x_ext = k_x.repeat(B_y, 1, 1, 1)
+        #     v_x_ext = v_x.repeat(B_y, 1, 1, 1)
+        #     k_cat_y = torch.cat((k_x_ext, k_y), dim=2)
+        #     v_cat_y = torch.cat((v_x_ext, v_y), dim=2)
+        # elif B_y == 1:
+        #     k_x_avg = k_x.mean(0, True)
+        #     v_x_avg = v_x.mean(0, True)
+        #     k_cat_y = torch.cat((k_x_avg, k_y), dim=2)
+        #     v_cat_y = torch.cat((v_x_avg, v_y), dim=2)
+
+        # attn_y = (q_y @ k_cat_y.transpose(-2, -1)) * self.scale
+        # attn_y = attn_y.softmax(dim=-1)
+        # attn_y = self.attn_drop(attn_y)
+
+        # y = (attn_y @ v_cat_y).transpose(1, 2).reshape(B_y, N_y, C_y)
+        # y = self.proj(y)
+        # y = self.proj_drop(y)
+        if self.training:
+            self.num_of_rois = cfg.TRAIN.BATCH_SIZE
+        else:
+            self.num_of_rois = cfg.TEST.RPN_POST_NMS_TOP_N 
+        batch_size = im_data.size(0)
+        im_info = im_info.data
+        gt_boxes = gt_boxes.data
+        num_boxes = num_boxes.data
+
+        # feature extraction
+        base_feat = self.RCNN_base(im_data)
+        if self.training:
+            support_ims = support_ims.view(-1, support_ims.size(2), support_ims.size(3), support_ims.size(4))
+            support_feats = self.RCNN_base(support_ims)  # [B*2*shot, 1024, 20, 20]
+            support_feats = support_feats.view(-1, self.n_way*self.n_shot, support_feats.size(1), support_feats.size(2), support_feats.size(3))
+            pos_support_feat = support_feats[:, :self.n_shot, :, :, :].contiguous()  # [B, shot, 1024, 20, 20]
+            neg_support_feat = support_feats[:, self.n_shot:self.n_way*self.n_shot, :, :, :].contiguous()
+            pos_support_feat_pooled = self.avgpool(pos_support_feat.view(-1, 1024, 20, 20))
+            neg_support_feat_pooled = self.avgpool(neg_support_feat.view(-1, 1024, 20, 20))
+            pos_support_feat_pooled = pos_support_feat_pooled.view(batch_size, self.n_shot, 1024, 7, 7)  # [B, shot, 1024, 7, 7]
+            neg_support_feat_pooled = neg_support_feat_pooled.view(batch_size, self.n_shot, 1024, 7, 7)
+        else:
+            support_ims = support_ims.view(-1, support_ims.size(2),  support_ims.size(3),  support_ims.size(4))
+            support_feats = self.RCNN_base(support_ims)
+            support_feats = support_feats.view(-1, self.n_shot, support_feats.size(1), support_feats.size(2), support_feats.size(3))
+            pos_support_feat = support_feats[:, :self.n_shot, :, :, :]
+            pos_support_feat_pooled = self.avgpool(pos_support_feat.view(-1, 1024, 20, 20))
+            pos_support_feat_pooled = pos_support_feat_pooled.view(batch_size, self.n_shot, 1024, 7, 7)
+
+        batch_size = pos_support_feat.size(0)
+        feat_h = base_feat.size(2)
+        feat_w = base_feat.size(3)
+        support_mat = pos_support_feat.transpose(0, 1).view(self.n_shot, batch_size, 1024, -1).transpose(2, 3)  # [shot, B, 400, 1024]
+        query_mat = base_feat.view(batch_size, 1024, -1).transpose(1, 2)  # [B, h*w, 1024]
+
+        dense_support_feature = []
+        q_matrix = self.rpn_adapt_q_layer(query_mat)  # [B, hw, 256]
+        q_matrix = q_matrix - q_matrix.mean(1, keepdim=True)
+        for i in range(self.n_shot):
+            if self.pos_encoding:
+                single_s_mat = self.rpn_pos_encoding_layer(support_mat[i])  # [B, 400, 1024]
+            else:
+                single_s_mat = self.support_mat[i]
+
+            # support channel enhance
+            if self.semantic_enhance:
+                support_spatial_weight = self.rpn_channel_k_layer(single_s_mat)  # [B, 400, 1]
+                support_spatial_weight = F.softmax(support_spatial_weight, 1)
+                support_channel_global = torch.bmm(support_spatial_weight.transpose(1, 2), single_s_mat)  # [B, 1, 1024]
+                single_s_mat = single_s_mat + self.channel_gamma * F.leaky_relu(support_channel_global)
+
+            # support adaptive attention
+            k_matrix = self.rpn_adapt_k_layer(single_s_mat)  # [B, 400, 256]
+            k_matrix = k_matrix - k_matrix.mean(1, keepdim=True)
+            support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)  # [B, hw, 400]
+            support_adaptive_attention_weight = F.softmax(support_adaptive_attention_weight, dim=2)
+            unary_term = self.rpn_unary_layer(single_s_mat)  # [B, 400, 1]
+            unary_term = F.softmax(unary_term, dim=1)
+            support_adaptive_attention_weight = support_adaptive_attention_weight + self.unary_gamma * unary_term.transpose(1, 2)  # [B, hw, 400]
+            support_adaptive_attention_feature = torch.bmm(support_adaptive_attention_weight, single_s_mat)  # [B, hw, 1024]
+
+            dense_support_feature += [support_adaptive_attention_feature]
+        dense_support_feature = torch.stack(dense_support_feature, 0).mean(0)  # [B, hw, 1024]
+        dense_support_feature = dense_support_feature.transpose(1, 2).view(batch_size, 1024, feat_h, feat_w)
+
+        if self.attention_type == 'concat':
+            correlation_feat = torch.cat([base_feat, dense_support_feature], 1)
+        elif self.attention_type == 'product':
+            correlation_feat = base_feat * dense_support_feature
+        
+        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(correlation_feat, im_info, gt_boxes, num_boxes)
+
+
+        return x, y #torch.cat((x, y), dim=1)
+
+
+
 
 
 class Block(nn.Module):
