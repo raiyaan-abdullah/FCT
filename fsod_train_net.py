@@ -202,7 +202,7 @@ def main(args):
 if __name__ == "__main__":
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
-    
+    args.config_file = 'configs/fsod/two_branch_training_pascalvoc_split1_pvt_v2_b2_li.yaml'
     launch(
         main,
         args.num_gpus,

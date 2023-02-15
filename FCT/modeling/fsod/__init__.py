@@ -9,3 +9,6 @@ from .fsod_fast_rcnn import FsodFastRCNNOutputLayers
 from .fsod_rpn import FsodRPN
 from .pvt_v2 import build_PVT_backbone
 from .FCT import build_FCT_backbone
+from .BACISA import DAnARCNN
+
+
