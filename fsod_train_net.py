@@ -136,12 +136,14 @@ class Trainer(DefaultTrainer):
             else:
                 evaluation_dataset = 'voc'
                 voc_test_shots_set = set([1,2,3,5,10])
+                #voc_test_shots_set = set([5])
                 test_shots_join = cur_test_shots_set.intersection(voc_test_shots_set)
                 test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
 
             if cfg.INPUT.FS.FEW_SHOT:
                 test_shots = [cfg.INPUT.FS.SUPPORT_SHOT]
-                test_shots_join = set(test_shots)
+                #test_shots_join = set(test_shots)
+                test_shots_join = 10
 
             print("================== test_shots_join=", test_shots_join)
             for shot in test_shots_join:

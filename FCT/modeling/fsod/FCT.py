@@ -340,7 +340,7 @@ def make_stage(i,
 
 
 class PyramidVisionTransformerV2(Backbone): #(nn.Module):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
+    def __init__(self, img_size=224, patch_size=16, in_chans=1024, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[3, 4, 6, 3],
                  sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None, only_train_norm=False, train_branch_embed=True, frozen_stages=-1, multi_output=False):
@@ -460,7 +460,8 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
         B_x = x.shape[0]
         B_y = y.shape[0]
         outs = []
-        feature = self.dana(x, y) 
+        # support_feature, query_feature = self.dana(x, y)
+        x, y = self.dana(x, y) 
         # print("Input x.shape={}".format(x.shape))
         # print("Input y.shape={}".format(y.shape))
         for i in range(self.num_stages):
@@ -469,6 +470,8 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
             patch_embed = getattr(self, f"patch_embed{i + 1}")
             block = getattr(self, f"block{i + 1}")
             norm = getattr(self, f"norm{i + 1}")
+            # x, H_x, W_x = patch_embed(query_feature)
+            # y, H_y, W_y = patch_embed(support_feature)
             x, H_x, W_x = patch_embed(x)
             y, H_y, W_y = patch_embed(y)
 

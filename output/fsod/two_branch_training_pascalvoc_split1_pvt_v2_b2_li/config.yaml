@@ -19,6 +19,7 @@ DATASETS:
   - 2
   - 3
   - 5
+  - 10
   TRAIN:
   - voc_2007_trainval_base1
   - voc_2012_trainval_base1

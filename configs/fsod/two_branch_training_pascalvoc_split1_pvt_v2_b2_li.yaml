@@ -20,7 +20,7 @@ DATASETS:
   TRAIN: ("voc_2007_trainval_base1", "voc_2012_trainval_base1")
   TEST: ("voc_2007_test_all1",)
   TEST_KEEPCLASSES: 'all1'
-  TEST_SHOTS: (1,2,3,5)
+  TEST_SHOTS: (1,2,3,5,10)
 INPUT:
   FS:
     SUPPORT_WAY: 2
