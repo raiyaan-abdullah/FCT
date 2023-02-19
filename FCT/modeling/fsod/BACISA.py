@@ -176,5 +176,5 @@ class PositionalEncoding(nn.Module):
         if train:
             x = x + self.pe.to(x.device)
         else:
-            x = x + self.pe1.to(x.device)
+            x = x + self.pe.to(x.device)
         return x

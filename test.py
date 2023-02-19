@@ -141,7 +141,8 @@ class Trainer(DefaultTrainer):
                 test_shots = [cfg.INPUT.FS.SUPPORT_SHOT]
                 #test_shots_join = set(test_shots)
                 test_shots_join = 10
-
+            
+            test_shots_join = set([10])
             print("================== test_shots_join=", test_shots_join)
             for shot in test_shots_join:
                 print("evaluating {}.{} for {} shot".format(evaluation_dataset, test_keepclasses, shot))
