@@ -53,7 +53,7 @@ class DAnARCNN(nn.Module):
         
         if pos_encoding:
             self.pos_encoding_layer = PositionalEncoding()
-            self.rpn_pos_encoding_layer = PositionalEncoding(max_len=200)
+            self.rpn_pos_encoding_layer = PositionalEncoding(max_len=20)
         
         resnet = resnet50()
         if self.pretrained == True:
@@ -63,7 +63,9 @@ class DAnARCNN(nn.Module):
 
         # Build resnet. (base)
         self.RCNN_base = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool,resnet.layer1,resnet.layer2,resnet.layer3)
+             resnet.maxpool,resnet.layer1,resnet.layer2,resnet.layer3)
+        # self.RCNN_base = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+        #     resnet.maxpool,resnet.layer1)
         
     def forward(self, im_data, support_ims, all_cls_gt_boxes=None):
 
@@ -75,8 +77,8 @@ class DAnARCNN(nn.Module):
         if self.training:
             support_ims = support_ims.view(-1, support_ims.size(1), support_ims.size(2), support_ims.size(3))
             support_feats = self.RCNN_base(support_ims)  # [B*2*shot, 1024, 20, 20]
-            support_feats = support_feats.view(-1, self.n_way*self.n_shot, support_feats.size(0), support_feats.size(1), support_feats.size(2))
-        #    support_feats = support_feats.view(support_feats.size(0), self.n_way*self.n_shot, support_feats.size(1), -1, support_feats.size(2))
+            support_feats = support_feats.view(support_feats.size(0), self.n_way*self.n_shot,support_feats.size(1), -1, support_feats.size(2))
+            #support_feats = support_feats.view(support_feats.size(0), self.n_way*self.n_shot, support_feats.size(1), -1, support_feats.size(2))
             pos_support_feat = support_feats[:, :self.n_shot, :, :, :].contiguous()  # [B, shot, 1024, 20, 20]
             #neg_support_feat = support_feats[:, self.n_shot:self.n_way*self.n_shot, :, :, :].contiguous()
             # pos_support_feat_pooled = self.avgpool(pos_support_feat.view(-1, 1024, 20, 20))
@@ -97,7 +99,9 @@ class DAnARCNN(nn.Module):
         feat_w = base_feat.size(3)
         support_mat = pos_support_feat.transpose(0, 1).view(self.n_shot, batch_size, 1024, -1).transpose(2, 3)  # [shot, B, 400, 1024]
         query_mat = base_feat.view(batch_size_x, 1024, -1).transpose(1, 2)  # [B, h*w, 512]
-
+        #support_mat = pos_support_feat.transpose(0, 1).view(self.n_shot, batch_size, 256, -1).transpose(2, 3)  # [shot, B, 400, 1024]
+        #query_mat = base_feat.view(batch_size_x, 256, -1).transpose(1, 2)  # [B, h*w, 512]
+        
         dense_support_feature = []
         dense_query_feature = []
         q_matrix = self.rpn_adapt_q_layer(query_mat)  # [B, hw, 256]
@@ -106,7 +110,7 @@ class DAnARCNN(nn.Module):
             if self.pos_encoding:
                 single_s_mat = self.rpn_pos_encoding_layer(support_mat[i], self.training)  # [B, 400, 1024]
             else:
-                single_s_mat = self.support_mat[i]
+                single_s_mat = support_mat[i]
 
             # support channel enhance (BA Block)
             if self.semantic_enhance:
@@ -119,18 +123,28 @@ class DAnARCNN(nn.Module):
             k_matrix = self.rpn_adapt_k_layer(single_s_mat)  # [B, 400, 256]
             k_matrix = k_matrix - k_matrix.mean(1, keepdim=True)
             if not self.training:
-                k_matrix = k_matrix.view(batch_size_x, -1, 256)
+                #k_matrix = k_matrix.view(batch_size_x, -1, 256)
                 single_s_mat = single_s_mat.reshape(1, -1, 1024)
-                
-            support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)
-            #support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)  # [B, hw, 400]
-            support_adaptive_attention_weight = F.softmax(support_adaptive_attention_weight, dim=2) # Attention maps
-            unary_term = self.rpn_unary_layer(single_s_mat)  # [B, 400, 1]
-            query_adaptive_attention_feature = F.softmax(unary_term, dim=1).transpose(1, 2)
-            unary_term = unary_term.transpose(1, 2)
-            #support_adaptive_attention_weight = support_adaptive_attention_weight + self.unary_gamma * unary_term.transpose(1, 2)  # [B, hw, 400]
+                #single_s_mat = single_s_mat.reshape(1, -1, 256)
             
+            #support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)  # [B, hw, 400]
+            #support_adaptive_attention_weight = F.softmax(support_adaptive_attention_weight, dim=2)
+            unary_term = self.rpn_unary_layer(single_s_mat)  # [B, 400, 1]
+            unary_term = F.softmax(unary_term, dim=1)
+            support_adaptive_attention_weight = support_adaptive_attention_weight + self.unary_gamma * unary_term.transpose(1, 2)  # [B, hw, 400]
             support_adaptive_attention_feature = torch.bmm(support_adaptive_attention_weight, single_s_mat)  # [B, hw, 1024]
+            
+            # unary_term = self.rpn_unary_layer(single_s_mat)  # [B, 400, 1]
+            # query_adaptive_attention_feature = F.softmax(unary_term, dim=1).transpose(1, 2)
+            # unary_term = unary_term.transpose(1, 2)
+            # #----
+            # #support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)
+            # support_adaptive_attention_weight = torch.bmm(q_matrix, k_matrix.transpose(1, 2)) / math.sqrt(self.rpn_reduce_dim)  # [B, hw, 400]
+            # support_adaptive_attention_weight = F.softmax(support_adaptive_attention_weight, dim=2) # Attention maps
+        
+            #support_adaptive_attention_weight = support_adaptive_attention_weight + self.unary_gamma * unary_term.transpose(1, 2)  # [B, hw, 400]
+        
+            #support_adaptive_attention_feature = torch.bmm(support_adaptive_attention_weight, single_s_mat)  # [B, hw, 1024]
             query_adaptive_attention_feature = torch.bmm(unary_term, single_s_mat)  # [B, hw, 1024]
 
             dense_support_feature += [support_adaptive_attention_feature]
@@ -144,14 +158,19 @@ class DAnARCNN(nn.Module):
         if self.training:
             dense_support_feature = dense_support_feature.transpose(1, 2).view(batch_size_y, 1024, feat_h, feat_w)
             dense_query_feature = dense_query_feature.transpose(1, 2).view(batch_size_x, 1024, 1, 1)
+            #dense_support_feature = dense_support_feature.transpose(1, 2).view(batch_size_y, 256, feat_h, feat_w)
+            #dense_query_feature = dense_query_feature.transpose(1, 2).view(batch_size_x, 256, 1, 1)
         else:
             dense_support_feature = dense_support_feature.transpose(1, 2).reshape(batch_size_y, 1024, -1, 1)
             dense_query_feature = dense_query_feature.transpose(1, 2).reshape(batch_size_x, 1024, -1, 1)
+            #dense_support_feature = dense_support_feature.transpose(1, 2).reshape(batch_size_y, 256, -1, 1)
+            #dense_query_feature = dense_query_feature.transpose(1, 2).reshape(batch_size_x, 256, -1, 1)
         
         return dense_query_feature, dense_support_feature
 
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
+    #def __init__(self, d_model=1024, max_len=200):
     def __init__(self, d_model=1024, max_len=200):
         super(PositionalEncoding, self).__init__()
         # Compute the positional encodings once in log space.

@@ -86,6 +86,87 @@ class Trainer(DefaultTrainer):
         else:
             return PascalVOCDetectionEvaluator(dataset_name)
 
+    # @classmethod
+    # def test(cls, cfg, model, evaluators=None):
+    #     """
+    #     Args:
+    #         cfg (CfgNode):
+    #         model (nn.Module):
+    #         evaluators (list[DatasetEvaluator] or None): if None, will call
+    #             :meth:`build_evaluator`. Otherwise, must have the same length as
+    #             `cfg.DATASETS.TEST`.
+
+    #     Returns:
+    #         dict: a dict of result metrics
+    #     """
+    #     logger = logging.getLogger(__name__)
+    #     if isinstance(evaluators, DatasetEvaluator):
+    #         evaluators = [evaluators]
+    #     if evaluators is not None:
+    #         assert len(cfg.DATASETS.TEST) == len(evaluators), "{} != {}".format(
+    #             len(cfg.DATASETS.TEST), len(evaluators)
+    #         )
+
+    #     results = OrderedDict()
+    #     for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
+    #         data_loader = cls.build_test_loader(cfg, dataset_name)
+    #         # When evaluators are passed in as arguments,
+    #         # implicitly assume that evaluators can be created before data_loader.
+    #         if evaluators is not None:
+    #             evaluator = evaluators[idx]
+    #         else:
+    #             try:
+    #                 evaluator = cls.build_evaluator(cfg, dataset_name)
+    #             except NotImplementedError:
+    #                 logger.warn(
+    #                     "No evaluator found. Use `DefaultTrainer.test(evaluators=)`, "
+    #                     "or implement its `build_evaluator` method."
+    #                 )
+    #                 results[dataset_name] = {}
+    #                 continue
+
+    #         test_seeds = cfg.DATASETS.SEEDS
+    #         test_shots = cfg.DATASETS.TEST_SHOTS
+    #         cur_test_shots_set = set(test_shots)
+    #         if 'coco' in cfg.DATASETS.TRAIN[0]:
+    #             evaluation_dataset = 'coco'
+    #             coco_test_shots_set = set([1,2,3,5,10,30])
+    #             test_shots_join = cur_test_shots_set.intersection(coco_test_shots_set)
+    #             test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
+    #         else:
+    #             evaluation_dataset = 'voc'
+    #             voc_test_shots_set = set([1,2,3,5,10])
+    #             #voc_test_shots_set = set([5])
+    #             test_shots_join = cur_test_shots_set.intersection(voc_test_shots_set)
+    #             test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
+
+    #         if cfg.INPUT.FS.FEW_SHOT:
+    #             test_shots = [cfg.INPUT.FS.SUPPORT_SHOT]
+    #             #test_shots_join = set(test_shots)
+    #             test_shots_join = 10
+
+    #         print("================== test_shots_join=", test_shots_join)
+    #         for shot in test_shots_join:
+    #             print("evaluating {}.{} for {} shot".format(evaluation_dataset, test_keepclasses, shot))
+    #             if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+    #                 model.module.init_support_features(evaluation_dataset, shot, test_keepclasses, test_seeds)
+    #             else:
+    #                 model.init_support_features(evaluation_dataset, shot, test_keepclasses, test_seeds)
+
+    #             results_i = inference_on_dataset(model, data_loader, evaluator)
+    #             results[dataset_name] = results_i
+    #             if comm.is_main_process():
+    #                 assert isinstance(
+    #                     results_i, dict
+    #                 ), "Evaluator must return a dict on the main process. Got {} instead.".format(
+    #                     results_i
+    #                 )
+    #                 logger.info("Evaluation results for {} in csv format:".format(dataset_name))
+    #                 print_csv_format(results_i)
+
+    #     if len(results) == 1:
+    #         results = list(results.values())[0]
+    #     return results
     @classmethod
     def test(cls, cfg, model, evaluators=None):
         """
@@ -142,9 +223,10 @@ class Trainer(DefaultTrainer):
 
             if cfg.INPUT.FS.FEW_SHOT:
                 test_shots = [cfg.INPUT.FS.SUPPORT_SHOT]
-                #test_shots_join = set(test_shots)
+                #test_shots_join = set(test_shots)Learning to Walk via Deep Reinforcement Learning.
                 test_shots_join = 10
-
+            
+            test_shots_join = set([10])
             print("================== test_shots_join=", test_shots_join)
             for shot in test_shots_join:
                 print("evaluating {}.{} for {} shot".format(evaluation_dataset, test_keepclasses, shot))
@@ -167,7 +249,6 @@ class Trainer(DefaultTrainer):
         if len(results) == 1:
             results = list(results.values())[0]
         return results
-
 
 def setup(args):
     """

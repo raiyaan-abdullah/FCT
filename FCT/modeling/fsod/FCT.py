@@ -12,7 +12,8 @@ import math
 from timm.models.layers import to_2tuple, trunc_normal_
 
 #from FCT.modeling.fsod import DAnARCNN
-from FCT.modeling.fsod.BACISA import DAnARCNN
+#from FCT.modeling.fsod.BACISA import DAnARCNN
+from FCT.modeling.fsod.BACISA_roy import DAnARCNN
 # from mmdet.utils import get_root_logger
 # from mmcv.runner import load_checkpoint
 
@@ -267,6 +268,11 @@ class Block(nn.Module):
         x = x + outs[0]
         y = y + outs[1]
         return x, y
+        #Edited by us for the absence of patch EMD (Start)
+        #_, H_x, W_x = x.shape
+        #_, H_y, W_y = y.shape
+        # return x, H_x, W_x, y, H_y, W_y
+        # End 
 
 
 class OverlapPatchEmbed(nn.Module):
@@ -284,8 +290,8 @@ class OverlapPatchEmbed(nn.Module):
         self.num_patches = self.H * self.W
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
                               padding=(patch_size[0] // 2, patch_size[1] // 2))
+        self.lin = nn.Linear(in_chans, embed_dim)
         self.norm = nn.LayerNorm(embed_dim)
-
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -305,6 +311,8 @@ class OverlapPatchEmbed(nn.Module):
 
     def forward(self, x):
         x = self.proj(x)
+        # x = self.lin(x.transpose(1, 3))
+        # x = x.transpose(1, 3)
         _, _, H, W = x.shape
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
@@ -316,7 +324,8 @@ def make_stage(i,
              img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
              num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
              attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[3, 4, 6, 3],
-             sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None):
+             sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None, 
+             q_shape=[38*25, 19*13, 10*7, 5*6], support_shape=[80*80, 40*40, 20*20, 10*10]):
     dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
     cur = 0
     for idx_ in range(i):
@@ -327,6 +336,13 @@ def make_stage(i,
                                     stride=4 if i == 0 else 2,
                                     in_chans=in_chans if i == 0 else embed_dims[i - 1],
                                     embed_dim=embed_dims[i])
+    
+    #dana = DAnARCNN(embed_dims[i], 
+                    # q_shape[i], 
+                    # support_shape[i], 
+                    # n_way=2, 
+                    # n_shot=10, 
+                    # pos_encoding=False)
 
     block = nn.ModuleList([Block(
         dim=embed_dims[i], num_heads=num_heads[i], mlp_ratio=mlp_ratios[i], qkv_bias=qkv_bias,
@@ -336,14 +352,16 @@ def make_stage(i,
         for j in range(depths[i])])
     norm = norm_layer(embed_dims[i])
 
+    #return patch_embed, block, norm, dana
     return patch_embed, block, norm
 
 
 class PyramidVisionTransformerV2(Backbone): #(nn.Module):
-    def __init__(self, img_size=224, patch_size=16, in_chans=1024, num_classes=1000, embed_dims=[64, 128, 256, 512],
+    #in_chans=3, embed_dims=[64, 128, 256, 512], [64, 128, 320, 512], [1024, 512, 256, 512]
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[3, 4, 6, 3],
-                 sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None, only_train_norm=False, train_branch_embed=True, frozen_stages=-1, multi_output=False):
+                 sr_ratios=[8, 4, 2, 1], num_stages=2, linear=False, pretrained=None, only_train_norm=False, train_branch_embed=True, frozen_stages=-1, multi_output=False):
         super().__init__()
         # self.num_classes = num_classes
         self.depths = depths
@@ -352,13 +370,11 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         cur = 0
-        
-        self.dana = DAnARCNN(num_classes, rpn_reduce_dim=256, gamma=0.1, semantic_enhance=False, 
-                n_way=2, n_shot=10, pos_encoding=True)
 
         self.branch_embed_stage = 0
         for i in range(num_stages):
             patch_embed, block, norm = make_stage(i, 
+            #patch_embed, block, norm, dana = make_stage(i, 
                  img_size, patch_size, in_chans, num_classes, embed_dims,
                  num_heads, mlp_ratios, qkv_bias, qk_scale, drop_rate,
                  attn_drop_rate, drop_path_rate, norm_layer, depths,
@@ -368,12 +384,12 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
                 branch_embed = nn.Embedding(2, embed_dims[i])
                 setattr(self, f"branch_embed{i + 1}", branch_embed)
             setattr(self, f"patch_embed{i + 1}", patch_embed)
+            #setattr(self, f"dana{i + 1}", dana)
             setattr(self, f"block{i + 1}", block)
             setattr(self, f"norm{i + 1}", norm)
 
         # classification head
         # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
-
         self.apply(self._init_weights)
         # self.init_weights(pretrained)
 
@@ -457,27 +473,34 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
 
     def forward_features_with_two_branch(self, x, y):
-        B_x = x.shape[0]
-        B_y = y.shape[0]
+        B_x = x.shape[0] #number of shots, channels, resolution width, resolution height - 1,3,100,133
+        B_y = y.shape[0] #number of shots, channels, resolution width, resolution height - 10,3,320,320
         outs = []
         # support_feature, query_feature = self.dana(x, y)
-        x, y = self.dana(x, y) 
+        #x, y = self.dana(x, y) # (1, 1024, 1, 1), (10, 1024, 7, 9)
         # print("Input x.shape={}".format(x.shape))
         # print("Input y.shape={}".format(y.shape))
         for i in range(self.num_stages):
             if i >= self.branch_embed_stage:
-                branch_embed = getattr(self, f"branch_embed{i + 1}")
+                  branch_embed = getattr(self, f"branch_embed{i + 1}")
             patch_embed = getattr(self, f"patch_embed{i + 1}")
+            #dana = getattr(self, f"dana{i + 1}")
             block = getattr(self, f"block{i + 1}")
             norm = getattr(self, f"norm{i + 1}")
             # x, H_x, W_x = patch_embed(query_feature)
             # y, H_y, W_y = patch_embed(support_feature)
-            x, H_x, W_x = patch_embed(x)
-            y, H_y, W_y = patch_embed(y)
-
+            # _, _, H_x, W_x = x.shape
+            # _, _, H_y, W_y = y.shape
+            x, H_x, W_x = patch_embed(x) #(1, 1, 512), 1, 1
+            y, H_y, W_y = patch_embed(y) #(10, 6, 512), 1, 1
+            #x = dana(x)
+            #y = dana(y)
+            # x = x.flatten(2).transpose(1, 2)
+            # y = y.flatten(2).transpose(1, 2)
             if i < self.branch_embed_stage:
                 for blk in block:
-                    x, y = blk(x, H_x, W_x, y, H_y, W_y)
+                    #x, y = blk(x, H_x, W_x, y, H_y, W_y)
+                    x, H_x, W_x, y, H_y, W_y = blk(x, H_x, W_x, y, H_y, W_y)
             else:
                 x_branch_embed = torch.zeros(x.shape[:-1], dtype=torch.long).cuda()
                 x = x + branch_embed(x_branch_embed)
@@ -487,11 +510,15 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
                 for blk in block:
                     x, y = blk(x, H_x, W_x, y, H_y, W_y)
-
-            x = norm(x)
-            x = x.reshape(B_x, H_x, W_x, -1).permute(0, 3, 1, 2).contiguous()
-            y = norm(y)
-            y = y.reshape(B_y, H_y, W_y, -1).permute(0, 3, 1, 2).contiguous()
+            # Edited by us for the absence of patch EMD (Start)
+            # for blk in block:
+            #     x, y = blk(x, H_x, W_x, y, H_y, W_y)
+            # End
+                
+            x = norm(x) #(1, 1, 512)
+            x = x.reshape(B_x, H_x, W_x, -1).permute(0, 3, 1, 2).contiguous() #(1, 512, 1, 1)
+            y = norm(y) # (10, 6, 512])
+            y = y.reshape(B_y, H_y, W_y, -1).permute(0, 3, 1, 2).contiguous() #(10, 512, 2, 3]
             outs.append((x, y))
 
         return outs
@@ -653,11 +680,12 @@ class pvt_v2_b2(PyramidVisionTransformerV2):
 # @BACKBONE_REGISTRY.register()
 class pvt_v2_b2_li(PyramidVisionTransformerV2):
     def __init__(self, **kwargs):
+        #patch_size=4, embed_dims= [512, 256, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4]
         super(pvt_v2_b2_li, self).__init__(
             patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1, linear=True, pretrained="https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b2_li.pth", num_stages=kwargs['num_stages'], only_train_norm=kwargs['only_train_norm'], train_branch_embed=kwargs['train_branch_embed'], frozen_stages=kwargs['frozen_stages'], multi_output=kwargs['multi_output'])
-
+#kwargs['num_stages']
 
 # @BACKBONE_REGISTRY.register()
 class pvt_v2_b3(PyramidVisionTransformerV2):
