@@ -20,10 +20,10 @@ from detectron2.evaluation import (
 )
 
 from FCT.config import get_cfg
-from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC
+from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC, DatasetMapperWithSupportVisdrone
 from FCT.data.build import build_detection_train_loader, build_detection_test_loader
 from FCT.solver import build_optimizer
-from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
+from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator
 
 import bisect
 import copy

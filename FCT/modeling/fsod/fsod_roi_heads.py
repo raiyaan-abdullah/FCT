@@ -135,8 +135,8 @@ class FsodRes5ROIHeads(ROIHeads):
         backbone_type = cfg.MODEL.BACKBONE.TYPE
         if backbone_type == "pvt_v2_b2_li":
             branch_embed = nn.Embedding(2, 512)
-            #patch_embed, block, norm, dana = make_stage(
-            patch_embed, block, norm = make_stage(
+            patch_embed, block, norm, dana = make_stage(
+            #patch_embed, block, norm = make_stage(
                  i=3,
                  img_size=224, patch_size=4, in_chans=3, num_classes=1000, embed_dims=[64, 128, 320, 512],
                  num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4], qkv_bias=True, qk_scale=None, drop_rate=0.,

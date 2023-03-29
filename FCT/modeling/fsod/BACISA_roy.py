@@ -80,7 +80,7 @@ class DAnARCNN(nn.Module):
         #support_feats = support_feats.view(-1, 1, support_feats_h * support_feats_w)
         #support_feats_base_ = support_feats_base #.transpose(1, 2)
         support_feats = torch.bmm(support_feats.transpose(1, 2), support_feats_base)
-        support_feats = F.leaky_relu(support_feats)
+        support_feats = F.leaky_relu(support_feats) #made tanh instead of leaky relu
         Z = support_feats_base + support_feats
         
         return Z

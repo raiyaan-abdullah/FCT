@@ -23,10 +23,10 @@ from detectron2.evaluation import (
 )
 
 from FCT.config import get_cfg
-from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC
+from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC, DatasetMapperWithSupportVisdrone
 from FCT.data.build import build_detection_train_loader, build_detection_test_loader
 from FCT.solver import build_optimizer
-from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
+from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator
 
 import bisect
 import copy
@@ -53,6 +53,8 @@ class Trainer(DefaultTrainer):
         """
         if 'coco' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportCOCO(cfg)
+        if 'visdrone' in cfg.DATASETS.TRAIN[0]:
+            mapper = DatasetMapperWithSupportVisdrone(cfg)
         else:
             mapper = DatasetMapperWithSupportVOC(cfg)
         return build_detection_train_loader(cfg, mapper)
@@ -83,6 +85,8 @@ class Trainer(DefaultTrainer):
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
         if 'coco' in dataset_name:
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        if 'visdrone' in dataset_name:
+            return VisdroneEvaluator(dataset_name, cfg, True, output_folder)
         else:
             return PascalVOCDetectionEvaluator(dataset_name)
 

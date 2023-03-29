@@ -16,7 +16,7 @@ from detectron2.engine import DefaultTrainer, default_argument_parser, default_s
 
 from FCT.config import get_cfg
 from FCT.data.build import build_detection_train_loader, build_detection_test_loader
-from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator
+from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator
 from FCT.solver import build_optimizer
 import FCT.modeling.fsod.pvt_roi_heads
 
@@ -40,6 +40,8 @@ class Trainer(DefaultTrainer):
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
         if 'coco' in dataset_name:
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        if 'visdrone' in dataset_name:
+            return VisdroneEvaluator(dataset_name, cfg, True, output_folder)
         else:
             return PascalVOCDetectionEvaluator(dataset_name)
 
