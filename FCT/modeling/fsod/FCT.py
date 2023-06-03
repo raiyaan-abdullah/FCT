@@ -9,12 +9,7 @@ import torch.nn.functional as F
 from functools import partial
 import math
 
-from einops import rearrange #,repeat
 from timm.models.layers import to_2tuple, trunc_normal_
-from timm.models.layers import drop_path as d_path
-#from FCT.modeling.fsod import DAnARCNN
-#from FCT.modeling.fsod.BACISA import DAnARCNN
-from FCT.modeling.fsod.BACISA_roy import DAnARCNN
 # from mmdet.utils import get_root_logger
 # from mmcv.runner import load_checkpoint
 
@@ -57,19 +52,7 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x[0], x[1], self.drop_prob, self.training)
 
-class DropPath_rvsa(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
-    def __init__(self, drop_prob=None):
-        super(DropPath_rvsa, self).__init__()
-        self.drop_prob = drop_prob
 
-    def forward(self, x):
-        return d_path(x, self.drop_prob, self.training)
-    
-    def extra_repr(self):
-        return 'p={}'.format(self.drop_prob)
-    
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., linear=False):
         super().__init__()
@@ -111,58 +94,6 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-def calc_rel_pos_spatial(
-    attn,
-    q,
-    q_shape,
-    k_shape,
-    rel_pos_h,
-    rel_pos_w,
-    ):
-    """
-    Spatial Relative Positional Embeddings.
-    """
-    sp_idx = 0
-    q_h, q_w = q_shape
-    k_h, k_w = k_shape
-
-    # Scale up rel pos if shapes for q and k are different.
-    q_h_ratio = max(k_h / q_h, 1.0)
-    k_h_ratio = max(q_h / k_h, 1.0)
-    dist_h = (
-        torch.arange(q_h)[:, None] * q_h_ratio - torch.arange(k_h)[None, :] * k_h_ratio
-    )
-
-    # dist_h [1-ws,ws-1]->[0,2ws-2]
-
-    dist_h += (k_h - 1) * k_h_ratio
-    q_w_ratio = max(k_w / q_w, 1.0)
-    k_w_ratio = max(q_w / k_w, 1.0)
-    dist_w = (
-        torch.arange(q_w)[:, None] * q_w_ratio - torch.arange(k_w)[None, :] * k_w_ratio
-    )
-    dist_w += (k_w - 1) * k_w_ratio
-
-    # get pos encode, qwh, kwh, C'
-
-    Rh = rel_pos_h[dist_h.long()]
-    Rw = rel_pos_w[dist_w.long()]
-
-    B, n_head, q_N, dim = q.shape
-
-    r_q = q[:, :, sp_idx:].reshape(B, n_head, q_h, q_w, dim) # B, H, qwh, qww, C
-    rel_h = torch.einsum("byhwc,hkc->byhwk", r_q, Rh)# B, H, qwh, qww, C'; qwh, kWh, C' -> B,H,qwh,qww,kwh
-    rel_w = torch.einsum("byhwc,wkc->byhwk", r_q, Rw)# B,H,qwh,qww,kww
-
-    # attn: B,H,qwh,qww,kwh,kww
-
-    attn[:, :, sp_idx:, sp_idx:] = (
-        attn[:, :, sp_idx:, sp_idx:].view(B, -1, q_h, q_w, k_h, k_w)
-        + rel_h[:, :, :, :, :, None]
-        + rel_w[:, :, :, :, None, :]
-    ).view(B, -1, q_h * q_w, k_h * k_w)
-
-    return attn
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1, linear=False):
@@ -291,355 +222,19 @@ class Attention(nn.Module):
 
         return x, y #torch.cat((x, y), dim=1)
 
-class RotatedVariedSizeWindowAttention(nn.Module):
-    def __init__(self, dim, num_heads, out_dim=None, window_size=1, qkv_bias=True, qk_scale=None, 
-            attn_drop=0., proj_drop=0, attn_head_dim=None, relative_pos_embedding=True, learnable=True, restart_regression=True,
-            attn_window_size=None, shift_size=0, img_size=(1,1), num_deform=None):
-        super().__init__()
-        
-        #window_size = window_size[0]
-        
-        self.img_size = to_2tuple(img_size)
-        self.num_heads = num_heads
-        self.dim = dim
-        out_dim = out_dim or dim
-        self.out_dim = out_dim
-        self.relative_pos_embedding = relative_pos_embedding
-        head_dim = dim // self.num_heads
-        self.ws = window_size
-        attn_window_size = attn_window_size or window_size
-        self.attn_ws = attn_window_size or self.ws
-
-        q_size = window_size
-        rel_sp_dim = 2 * q_size - 1
-        self.rel_pos_h = nn.Parameter(torch.zeros(rel_sp_dim, head_dim))
-        self.rel_pos_w = nn.Parameter(torch.zeros(rel_sp_dim, head_dim))
-        
-        self.learnable = learnable
-        self.restart_regression = restart_regression
-        if self.learnable:
-            # if num_deform is None, we set num_deform to num_heads as default
-
-            if num_deform is None:
-                num_deform = 1
-            self.num_deform = num_deform
-
-            self.sampling_offsets = nn.Sequential(
-                nn.AvgPool2d(kernel_size=window_size, stride=window_size),
-                nn.LeakyReLU(), 
-                nn.Conv2d(dim, self.num_heads * self.num_deform * 2, kernel_size=1, stride=1)
-            )
-            self.sampling_scales = nn.Sequential(
-                nn.AvgPool2d(kernel_size=window_size, stride=window_size), 
-                nn.LeakyReLU(), 
-                nn.Conv2d(dim, self.num_heads * self.num_deform * 2, kernel_size=1, stride=1)
-            )
-            # add angle
-            self.sampling_angles = nn.Sequential(
-                nn.AvgPool2d(kernel_size=window_size, stride=window_size), 
-                nn.LeakyReLU(), 
-                nn.Conv2d(dim, self.num_heads * self.num_deform * 1, kernel_size=1, stride=1)
-            )
-
-        self.shift_size = shift_size % self.ws
-        # self.left_size = self.img_size
-#        if min(self.img_size) <= self.ws:
-#            self.shift_size = 0
-
-        # if self.shift_size > 0:
-        #     self.padding_bottom = (self.ws - self.shift_size + self.padding_bottom) % self.ws
-        #     self.padding_right = (self.ws - self.shift_size + self.padding_right) % self.ws
-
-        self.scale = qk_scale or head_dim ** -0.5
-        
-        self.qkv = nn.Linear(dim, out_dim * 3, bias=qkv_bias)
-
-        #self.qkv = nn.Conv2d(dim, out_dim * 3, 1, bias=qkv_bias)
-        # self.kv = nn.Conv2d(dim, dim*2, 1, bias=False)
-
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(out_dim, out_dim)
-        #self.proj = nn.Conv2d(out_dim, out_dim, 1)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-        if self.relative_pos_embedding:
-            # define a parameter table of relative position bias
-            self.relative_position_bias_table = nn.Parameter(
-                torch.zeros((window_size + attn_window_size - 1) * (window_size + attn_window_size - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
-
-            # get pair-wise relative position index for each token inside the window
-            coords_h = torch.arange(self.attn_ws)
-            coords_w = torch.arange(self.attn_ws)
-            coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
-            coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-            relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-            relative_coords[:, :, 0] += self.attn_ws - 1  # shift to start from 0
-            relative_coords[:, :, 1] += self.attn_ws - 1
-            relative_coords[:, :, 0] *= 2 * self.attn_ws - 1
-            relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
-            self.register_buffer("relative_position_index", relative_position_index)
-
-            trunc_normal_(self.relative_position_bias_table, std=.02)
-            print('The relative_pos_embedding is used')
-
-    def forward(self, x, H, W):
-        
-        B,N,C = x.shape
-        assert N == H * W
-        x = x.view(B, H, W, C)
-        x = x.permute(0, 3, 1, 2).contiguous()
-        b, _, h, w = x.shape
-        shortcut = x
-        # assert h == self.img_size[0]
-        # assert w == self.img_size[1]
-        # if self.shift_size > 0:
-        padding_td = (self.ws - h % self.ws) % self.ws
-        padding_lr = (self.ws - w % self.ws) % self.ws
-        padding_top = padding_td // 2
-        padding_down = padding_td - padding_top
-        padding_left = padding_lr // 2
-        padding_right = padding_lr - padding_left
-        
-        # padding on left-right-up-down
-        expand_h, expand_w = h+padding_top+padding_down, w+padding_left+padding_right
-        
-        # window num in padding features
-        window_num_h = expand_h // self.ws
-        window_num_w = expand_w // self.ws
-        
-        image_reference_h = torch.linspace(-1, 1, expand_h).to(x.device)
-        image_reference_w = torch.linspace(-1, 1, expand_w).to(x.device)
-        image_reference = torch.stack(torch.meshgrid(image_reference_w, image_reference_h), 0).permute(0, 2, 1).unsqueeze(0) # 1, 2, H, W
-        
-        # position of the window relative to the image center
-        window_reference = nn.functional.avg_pool2d(image_reference, kernel_size=self.ws) # 1,2, nh, nw
-        image_reference = image_reference.reshape(1, 2, window_num_h, self.ws, window_num_w, self.ws)# 1, 2, nh, ws, nw, ws
-        assert window_num_h == window_reference.shape[-2]
-        assert window_num_w == window_reference.shape[-1]
-        
-        window_reference = window_reference.reshape(1, 2, window_num_h, 1, window_num_w, 1)# 1,2, nh,1, nw,1
-        
-        # coords of pixels in each window
-
-        base_coords_h = torch.arange(self.attn_ws).to(x.device) * 2 * self.ws / self.attn_ws / (expand_h-1) # ws
-        base_coords_h = (base_coords_h - base_coords_h.mean())
-        base_coords_w = torch.arange(self.attn_ws).to(x.device) * 2 * self.ws / self.attn_ws / (expand_w-1)
-        base_coords_w = (base_coords_w - base_coords_w.mean())
-        # base_coords = torch.stack(torch.meshgrid(base_coords_w, base_coords_h), 0).permute(0, 2, 1).reshape(1, 2, 1, self.attn_ws, 1, self.attn_ws)
-        
-        # extend to each window
-        expanded_base_coords_h = base_coords_h.unsqueeze(dim=0).repeat(window_num_h, 1) # ws -> 1,ws -> nh,ws
-        assert expanded_base_coords_h.shape[0] == window_num_h
-        assert expanded_base_coords_h.shape[1] == self.attn_ws
-        expanded_base_coords_w = base_coords_w.unsqueeze(dim=0).repeat(window_num_w, 1) # nw,ws
-        assert expanded_base_coords_w.shape[0] == window_num_w
-        assert expanded_base_coords_w.shape[1] == self.attn_ws
-        expanded_base_coords_h = expanded_base_coords_h.reshape(-1) # nh*ws
-        expanded_base_coords_w = expanded_base_coords_w.reshape(-1) # nw*ws
-
-        window_coords = torch.stack(torch.meshgrid(expanded_base_coords_w, expanded_base_coords_h), 0).permute(0, 2, 1).reshape(1, 2, window_num_h, self.attn_ws, window_num_w, self.attn_ws) # 1, 2, nh, ws, nw, ws
-        # base_coords = window_reference+window_coords
-        base_coords = image_reference
-        
-        # padding feature
-        x = torch.nn.functional.pad(x, (padding_left, padding_right, padding_top, padding_down))
-        
-        if self.restart_regression:
-            # compute for each head in each batch
-            coords = base_coords.repeat(b*self.num_heads, 1, 1, 1, 1, 1) # B*nH, 2, nh, ws, nw, ws
-        if self.learnable:
-            # offset factors
-            sampling_offsets = self.sampling_offsets(x)
-
-            num_predict_total = b * self.num_heads * self.num_deform
-
-            sampling_offsets = sampling_offsets.reshape(num_predict_total, 2, window_num_h, window_num_w)
-            sampling_offsets[:, 0, ...] = sampling_offsets[:, 0, ...] / (h // self.ws)
-            sampling_offsets[:, 1, ...] = sampling_offsets[:, 1, ...] / (w // self.ws)
-                       
-            # scale fators
-            sampling_scales = self.sampling_scales(x)       #B, heads*2, h // window_size, w // window_size
-            sampling_scales = sampling_scales.reshape(num_predict_total, 2, window_num_h, window_num_w)
-
-            # rotate factor
-            sampling_angle = self.sampling_angles(x)
-            sampling_angle = sampling_angle.reshape(num_predict_total, 1, window_num_h, window_num_w)
-
-            # first scale
-            
-            window_coords = window_coords * (sampling_scales[:, :, :, None, :, None] + 1)
-
-            # then rotate around window center
-
-            window_coords_r = window_coords.clone()
-
-            # 0:x,column, 1:y,row
-
-            window_coords_r[:,0,:,:,:,:] = -window_coords[:,1,:,:,:,:]*torch.sin(sampling_angle[:,0,:,None,:,None]) + window_coords[:,0,:,:,:,:]*torch.cos(sampling_angle[:,0,:,None,:,None])
-            window_coords_r[:,1,:,:,:,:] = window_coords[:,1,:,:,:,:]*torch.cos(sampling_angle[:,0,:,None,:,None]) + window_coords[:,0,:,:,:,:]*torch.sin(sampling_angle[:,0,:,None,:,None])
-            
-            # system transformation: window center -> image center
-            
-            coords = window_reference + window_coords_r + sampling_offsets[:, :, :, None, :, None]
-
-        # final offset
-        sample_coords = coords.permute(0, 2, 3, 4, 5, 1).reshape(num_predict_total, self.attn_ws*window_num_h, self.attn_ws*window_num_w, 2)
-
-        qkv = self.qkv(shortcut.permute(0,2,3,1).reshape(b,-1,self.dim)).permute(0,2,1).reshape(b,-1,h,w).reshape(b, 3, self.num_heads, self.out_dim // self.num_heads, h, w).transpose(1, 0).reshape(3*b*self.num_heads, self.out_dim // self.num_heads, h, w)
-        # if self.shift_size > 0:
-        qkv = torch.nn.functional.pad(qkv, (padding_left, padding_right, padding_top, padding_down)).reshape(3, b*self.num_heads, self.out_dim // self.num_heads, h+padding_td, w+padding_lr)
-        # else:
-        #     qkv = qkv.reshape(3, b*self.num_heads, self.dim // self.num_heads, h, w)
-        q, k, v = qkv[0], qkv[1], qkv[2] # b*self.num_heads, self.out_dim // self.num_heads, H，W
-        
-        k_selected = F.grid_sample(
-                        k.reshape(num_predict_total, self.out_dim // self.num_heads // self.num_deform, h+padding_td, w+padding_lr), 
-                        grid=sample_coords, padding_mode='zeros', align_corners=True
-                        ).reshape(b*self.num_heads, self.out_dim // self.num_heads, h+padding_td, w+padding_lr)
-        v_selected = F.grid_sample(
-                        v.reshape(num_predict_total, self.out_dim // self.num_heads // self.num_deform, h+padding_td, w+padding_lr), 
-                        grid=sample_coords, padding_mode='zeros', align_corners=True
-                        ).reshape(b*self.num_heads, self.out_dim // self.num_heads, h+padding_td, w+padding_lr)
-
-        q = q.reshape(b, self.num_heads, self.out_dim//self.num_heads, window_num_h, self.ws, window_num_w, self.ws).permute(0, 3, 5, 1, 4, 6, 2).reshape(b*window_num_h*window_num_w, self.num_heads, self.ws*self.ws, self.out_dim//self.num_heads)
-        k = k_selected.reshape(b, self.num_heads, self.out_dim//self.num_heads, window_num_h, self.attn_ws, window_num_w, self.attn_ws).permute(0, 3, 5, 1, 4, 6, 2).reshape(b*window_num_h*window_num_w, self.num_heads, self.attn_ws*self.attn_ws, self.out_dim//self.num_heads)
-        v = v_selected.reshape(b, self.num_heads, self.out_dim//self.num_heads, window_num_h, self.attn_ws, window_num_w, self.attn_ws).permute(0, 3, 5, 1, 4, 6, 2).reshape(b*window_num_h*window_num_w, self.num_heads, self.attn_ws*self.attn_ws, self.out_dim//self.num_heads)
-        
-        dots = (q @ k.transpose(-2, -1)) * self.scale
-        
-        dots = calc_rel_pos_spatial(dots, q, (self.ws, self.ws), (self.attn_ws, self.attn_ws), self.rel_pos_h, self.rel_pos_w)
-        
-        if self.relative_pos_embedding:
-            relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.ws * self.ws, self.attn_ws * self.attn_ws, -1)  # Wh*Ww,Wh*Ww,nH
-            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-            dots += relative_position_bias.unsqueeze(0)
-
-        attn = dots.softmax(dim=-1)
-        out = attn @ v
-
-        out = rearrange(out, '(b hh ww) h (ws1 ws2) d -> b (h d) (hh ws1) (ww ws2)', h=self.num_heads, b=b, hh=window_num_h, ww=window_num_w, ws1=self.ws, ws2=self.ws)
-        # if self.shift_size > 0:
-            # out = torch.masked_select(out, self.select_mask).reshape(b, -1, h, w)
-        out = out[:, :, padding_top:h+padding_top, padding_left:w+padding_left]
-        
-        out = out.permute(0,2,3,1).reshape(B, H*W, -1)
- 
-        out = self.proj(out)
-        out = self.proj_drop(out)
-
-        return out
-    
-    def _clip_grad(self, grad_norm):
-        # print('clip grads of the model for selection')
-        nn.utils.clip_grad_norm_(self.sampling_offsets.parameters(), grad_norm)
-        nn.utils.clip_grad_norm_(self.sampling_scales.parameters(), grad_norm)
-
-    def _reset_parameters(self):
-        if self.learnable:
-            nn.init.constant_(self.sampling_offsets[-1].weight, 0.)
-            nn.init.constant_(self.sampling_offsets[-1].bias, 0.)
-            nn.init.constant_(self.sampling_scales[-1].weight, 0.)
-            nn.init.constant_(self.sampling_scales[-1].bias, 0.)
-
-    def flops(self, ):
-        N = self.ws * self.ws
-        M = self.attn_ws * self.attn_ws
-        # calculate flops for 1 window with token length of N
-        flops = 0
-        # qkv = self.qkv(x)
-        flops += N * self.dim * 3 * self.dim
-        # attn = (q @ k.transpose(-2, -1))
-        flops += self.num_heads * N * (self.dim // self.num_heads) * M
-        #  x = (attn @ v)
-        flops += self.num_heads * N * M * (self.dim // self.num_heads)
-        # x = self.proj(x)
-        flops += N * self.dim * self.dim
-        h, w = self.img_size[0] + self.shift_size + self.padding_bottom, self.img_size[1] + self.shift_size + self.padding_right
-        flops *= (h / self.ws * w / self.ws)
-
-        # for sampling
-        flops_sampling = 0
-        if self.learnable:
-            # pooling
-            flops_sampling += h * w * self.dim
-            # regressing the shift and scale
-            flops_sampling += 2 * (h/self.ws + w/self.ws) * self.num_heads*2 * self.dim
-            # calculating the coords
-            flops_sampling += h/self.ws * self.attn_ws * w/self.ws * self.attn_ws * 2
-        # grid sampling attended features
-        flops_sampling += h/self.ws * self.attn_ws * w/self.ws * self.attn_ws * self.dim
-        
-        flops += flops_sampling
-
-        return flops
-    
-class OverlapPatchEmbed(nn.Module):
-    """ Image to Patch Embedding
-    """
-
-    def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
-        super().__init__()
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
-
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.H, self.W = img_size[0] // stride, img_size[1] // stride
-        self.num_patches = self.H * self.W
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
-                              padding=(patch_size[0] // 2, patch_size[1] // 2))
-        self.lin = nn.Linear(in_chans, embed_dim)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.apply(self._init_weights)
-
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
-            if isinstance(m, nn.Linear) and m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm):
-            nn.init.constant_(m.bias, 0)
-            nn.init.constant_(m.weight, 1.0)
-        elif isinstance(m, nn.Conv2d):
-            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-            fan_out //= m.groups
-            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
-            if m.bias is not None:
-                m.bias.data.zero_()
-
-    def forward(self, x):
-        x = self.proj(x)
-        # x = self.lin(x.transpose(1, 3))
-        # x = x.transpose(1, 3)
-        _, _, H, W = x.shape
-        x = x.flatten(2).transpose(1, 2)
-        x = self.norm(x)
-
-        return x, H, W
 
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, linear=False,
-                 window_size=1, attn_head_dim=None, window=False, restart_regression=True):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, linear=False):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        if not window:
-            self.attn = Attention(
-                dim,
-                num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, linear=linear)
-        else:    
-            self.rvsa = RotatedVariedSizeWindowAttention(
-                dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, 
-                attn_drop=attn_drop, proj_drop=drop, window_size=window_size, attn_head_dim=attn_head_dim, 
-                restart_regression=restart_regression)
-        self.window = window
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
+            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, linear=linear)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.drop_path_rvsa = DropPath_rvsa(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop, linear=linear)
@@ -662,34 +257,63 @@ class Block(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x, H_x, W_x, y, H_y, W_y):
-        if not self.window:
-            outs = self.drop_path(self.attn(self.norm1(x), H_x, W_x, self.norm1(y), H_y, W_y))
-            x = x + outs[0]
-            y = y + outs[1]
-        else:
-            #outs = self.drop_path_rvsa(self.rvsa(self.norm1(x), H_x, W_x))
-            outs = self.drop_path((self.rvsa(self.norm2(x), H_x, W_x), self.rvsa(self.norm2(y), H_y, W_y)))
-            x = x + outs[0]
-            y = y + outs[1] #self.drop_path_rvsa(self.rvsa(self.norm1(y), H_y, W_y))
-            #x = x + self.drop_path(self.mlp(self.norm2(x))
-        
+        outs = self.drop_path(self.attn(self.norm1(x), H_x, W_x, self.norm1(y), H_y, W_y))
+        x = x + outs[0]
+        y = y + outs[1]
         outs = self.drop_path((self.mlp(self.norm2(x), H_x, W_x), self.mlp(self.norm2(y), H_y, W_y)))
         x = x + outs[0]
         y = y + outs[1]
-            
         return x, y
-        #Edited by us for the absence of patch EMD (Start)
-        #_, H_x, W_x = x.shape
-        #_, H_y, W_y = y.shape
-        # return x, H_x, W_x, y, H_y, W_y
-        # End 
-        
+
+
+class OverlapPatchEmbed(nn.Module):
+    """ Image to Patch Embedding
+    """
+
+    def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        patch_size = to_2tuple(patch_size)
+
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.H, self.W = img_size[0] // stride, img_size[1] // stride
+        self.num_patches = self.H * self.W
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
+                              padding=(patch_size[0] // 2, patch_size[1] // 2))
+        self.norm = nn.LayerNorm(embed_dim)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        x = self.proj(x)
+        _, _, H, W = x.shape
+        x = x.flatten(2).transpose(1, 2)
+        x = self.norm(x)
+
+        return x, H, W
+
+
 def make_stage(i,
              img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
              num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
              attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[3, 4, 6, 3],
-             sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None, 
-             q_shape=[38*25, 19*13, 10*7, 5*6], support_shape=[80*80, 40*40, 20*20, 10*10]):
+             sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None):
     dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
     cur = 0
     for idx_ in range(i):
@@ -700,32 +324,23 @@ def make_stage(i,
                                     stride=4 if i == 0 else 2,
                                     in_chans=in_chans if i == 0 else embed_dims[i - 1],
                                     embed_dim=embed_dims[i])
-    
-    dana = DAnARCNN(embed_dims[i], 
-                    q_shape[i], 
-                    support_shape[i], 
-                    n_way=2, 
-                    n_shot=10, 
-                    pos_encoding=False)
 
     block = nn.ModuleList([Block(
         dim=embed_dims[i], num_heads=num_heads[i], mlp_ratio=mlp_ratios[i], qkv_bias=qkv_bias,
         qk_scale=qk_scale,
         drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + j], norm_layer=norm_layer,
-        sr_ratio=sr_ratios[i], linear=linear, window= j == 3 )
+        sr_ratio=sr_ratios[i], linear=linear)
         for j in range(depths[i])])
     norm = norm_layer(embed_dims[i])
 
-    return patch_embed, block, norm, dana
-    #return patch_embed, block, norm
+    return patch_embed, block, norm
 
 
 class PyramidVisionTransformerV2(Backbone): #(nn.Module):
-    #in_chans=3, embed_dims=[64, 128, 256, 512], [64, 128, 320, 512], [1024, 512, 256, 512]
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[3, 4, 6, 3],
-                 sr_ratios=[8, 4, 2, 1], num_stages=2, linear=False, pretrained=None, only_train_norm=False, train_branch_embed=True, frozen_stages=-1, multi_output=False):
+                 sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False, pretrained=None, only_train_norm=False, train_branch_embed=True, frozen_stages=-1, multi_output=False):
         super().__init__()
         # self.num_classes = num_classes
         self.depths = depths
@@ -737,8 +352,7 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
         self.branch_embed_stage = 0
         for i in range(num_stages):
-            #patch_embed, block, norm = make_stage(i, 
-            patch_embed, block, norm, dana = make_stage(i, 
+            patch_embed, block, norm = make_stage(i, 
                  img_size, patch_size, in_chans, num_classes, embed_dims,
                  num_heads, mlp_ratios, qkv_bias, qk_scale, drop_rate,
                  attn_drop_rate, drop_path_rate, norm_layer, depths,
@@ -748,12 +362,12 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
                 branch_embed = nn.Embedding(2, embed_dims[i])
                 setattr(self, f"branch_embed{i + 1}", branch_embed)
             setattr(self, f"patch_embed{i + 1}", patch_embed)
-            setattr(self, f"dana{i + 1}", dana)
             setattr(self, f"block{i + 1}", block)
             setattr(self, f"norm{i + 1}", norm)
 
         # classification head
         # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
+
         self.apply(self._init_weights)
         # self.init_weights(pretrained)
 
@@ -837,34 +451,24 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
 
     def forward_features_with_two_branch(self, x, y):
-        B_x = x.shape[0] #number of shots, channels, resolution width, resolution height - 1,3,100,133
-        B_y = y.shape[0] #number of shots, channels, resolution width, resolution height - 10,3,320,320
+        B_x = x.shape[0]
+        B_y = y.shape[0]
         outs = []
-        # support_feature, query_feature = self.dana(x, y)
-        #x, y = self.dana(x, y) # (1, 1024, 1, 1), (10, 1024, 7, 9)
+
         # print("Input x.shape={}".format(x.shape))
         # print("Input y.shape={}".format(y.shape))
         for i in range(self.num_stages):
             if i >= self.branch_embed_stage:
-                  branch_embed = getattr(self, f"branch_embed{i + 1}")
+                branch_embed = getattr(self, f"branch_embed{i + 1}")
             patch_embed = getattr(self, f"patch_embed{i + 1}")
-            dana = getattr(self, f"dana{i + 1}")
             block = getattr(self, f"block{i + 1}")
             norm = getattr(self, f"norm{i + 1}")
-            # x, H_x, W_x = patch_embed(query_feature)
-            # y, H_y, W_y = patch_embed(support_feature)
-            # _, _, H_x, W_x = x.shape
-            # _, _, H_y, W_y = y.shape
-            x, H_x, W_x = patch_embed(x) #(1, 1, 512), 1, 1
-            y, H_y, W_y = patch_embed(y) #(10, 6, 512), 1, 1
-            x = dana(x)
-            y = dana(y)
-            # x = x.flatten(2).transpose(1, 2)
-            # y = y.flatten(2).transpose(1, 2)
+            x, H_x, W_x = patch_embed(x)
+            y, H_y, W_y = patch_embed(y)
+
             if i < self.branch_embed_stage:
                 for blk in block:
-                    #x, y = blk(x, H_x, W_x, y, H_y, W_y)
-                    x, H_x, W_x, y, H_y, W_y = blk(x, H_x, W_x, y, H_y, W_y)
+                    x, y = blk(x, H_x, W_x, y, H_y, W_y)
             else:
                 x_branch_embed = torch.zeros(x.shape[:-1], dtype=torch.long).cuda()
                 x = x + branch_embed(x_branch_embed)
@@ -874,15 +478,11 @@ class PyramidVisionTransformerV2(Backbone): #(nn.Module):
 
                 for blk in block:
                     x, y = blk(x, H_x, W_x, y, H_y, W_y)
-            # Edited by us for the absence of patch EMD (Start)
-            # for blk in block:
-            #     x, y = blk(x, H_x, W_x, y, H_y, W_y)
-            # End
-                
-            x = norm(x) #(1, 1, 512)
-            x = x.reshape(B_x, H_x, W_x, -1).permute(0, 3, 1, 2).contiguous() #(1, 512, 1, 1)
-            y = norm(y) # (10, 6, 512])
-            y = y.reshape(B_y, H_y, W_y, -1).permute(0, 3, 1, 2).contiguous() #(10, 512, 2, 3]
+
+            x = norm(x)
+            x = x.reshape(B_x, H_x, W_x, -1).permute(0, 3, 1, 2).contiguous()
+            y = norm(y)
+            y = y.reshape(B_y, H_y, W_y, -1).permute(0, 3, 1, 2).contiguous()
             outs.append((x, y))
 
         return outs
@@ -1044,12 +644,11 @@ class pvt_v2_b2(PyramidVisionTransformerV2):
 # @BACKBONE_REGISTRY.register()
 class pvt_v2_b2_li(PyramidVisionTransformerV2):
     def __init__(self, **kwargs):
-        #patch_size=4, embed_dims= [512, 256, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4]
         super(pvt_v2_b2_li, self).__init__(
             patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1, linear=True, pretrained="https://github.com/whai362/PVT/releases/download/v2/pvt_v2_b2_li.pth", num_stages=kwargs['num_stages'], only_train_norm=kwargs['only_train_norm'], train_branch_embed=kwargs['train_branch_embed'], frozen_stages=kwargs['frozen_stages'], multi_output=kwargs['multi_output'])
-#kwargs['num_stages']
+
 
 # @BACKBONE_REGISTRY.register()
 class pvt_v2_b3(PyramidVisionTransformerV2):

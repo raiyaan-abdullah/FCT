@@ -5,10 +5,14 @@ Created on Wednesday, September 28, 2022
 """
 import os
 
-from .register_coco import register_coco_instances
+from register_coco import register_coco_instances
+from register_visdrone import register_visdrone_instances
+from register_bd_traffic import register_vhbt_instances
 from detectron2.data.datasets.builtin_meta import _get_builtin_metadata
-from .builtin_meta_pascal_voc import _get_builtin_metadata_pascal_voc
-from .meta_pascal_voc import register_meta_pascal_voc
+from builtin_meta_pascal_voc import _get_builtin_metadata_pascal_voc
+from builtin_meta_visdrone import _get_builtin_metadata_visdrone
+from builtin_meta_bd_traffic import _get_builtin_metadata_bd_traffic
+from meta_pascal_voc import register_meta_pascal_voc
 from detectron2.data import MetadataCatalog
 
 # ==== Predefined datasets and splits for COCO ==========
@@ -106,9 +110,91 @@ def register_all_pascal_voc(root="datasets"):
                                  keepclasses, sid)
         MetadataCatalog.get(name).evaluator_type = "pascal_voc"
 
+# ==== Predefined splits for VISDRONE ===========
+_PREDEFINED_SPLITS_VISDRONE = {}
+_PREDEFINED_SPLITS_VISDRONE["visdrone"] = {
+    "visdrone_train_nonvoc": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_non_voc_instances_visdrone.json"), # by default no_smaller_32
+
+    "visdrone_train_voc_1_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_1_shot_instances_visdrone.json"),
+    "visdrone_train_voc_2_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_2_shot_instances_visdrone.json"),
+    "visdrone_train_voc_3_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_3_shot_instances_visdrone.json"),
+    "visdrone_train_voc_5_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_5_shot_instances_visdrone.json"),
+    "visdrone_train_voc_10_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_10_shot_instances_visdrone.json"),
+    "visdrone_train_voc_30_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/final_split_novel_30_shot_instances_visdrone.json"),
+
+    "visdrone_train_full_10_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_10_shot_instances_visdrone.json"),
+    "visdrone_train_full_1_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_1_shot_instances_visdrone.json"),
+    "visdrone_train_full_2_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_2_shot_instances_visdrone.json"),
+    "visdrone_train_full_3_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_3_shot_instances_visdrone.json"),
+    "visdrone_train_full_5_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_5_shot_instances_visdrone.json"),
+    "visdrone_train_full_30_shot": ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/full_class_30_shot_instances_visdrone.json"),
+    "visdrone_val": ("visdrone/VisDrone2019-DET-val","visdrone/annotations/instances-val-visdrone.json")
+}
+def register_all_visdrone(root):
+    # for prefix in ["novel",]: #"all", 
+    for shot in [1, 2, 3, 5, 10, 30]:
+        for seed in range(1, 10):
+            name = "visdrone_train_voc_{}_shot_seed{}".format(shot, seed)
+            _PREDEFINED_SPLITS_VISDRONE["visdrone"][name] = ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/seed{}/{}_shot_instances_visdrone.json".format(seed, shot))
+
+            name = "visdrone_train_full_{}_shot_seed{}".format(shot, seed)
+            _PREDEFINED_SPLITS_VISDRONE["visdrone"][name] = ("visdrone/VisDrone2019-DET-train", "visdrone/new_annotations/seed{}/full_class_{}_shot_instances_visdrone.json".format(seed, shot))
+
+
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_VISDRONE.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_visdrone_instances(
+                key,
+                _get_builtin_metadata_visdrone("visdrone"),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
+
+
+# ==== Predefined splits for vhbt ===========
+_PREDEFINED_SPLITS_vhbt = {}
+_PREDEFINED_SPLITS_vhbt["vhbt"] = {
+    # "vhbt-train": ("vhbt/vhbt-train","vhbt/annotations/custom-coco-instances-vhbt.json"),
+    "vhbt-train-nonvoc": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_non_voc_instances_bd_traffic.json"), # by default no_smaller_32
+
+    "vhbt_train_voc_1_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_novel_1_shot_instances_bd_traffic.json"),
+    "vhbt_train_voc_3_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_novel_3_shot_instances_bd_traffic.json"),
+    
+
+    
+    "vhbt_train_full_1_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/full_class_1_shot_instances_bd_traffic.json"),
+    "vhbt_train_full_3_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/full_class_3_shot_instances_bd_traffic.json"),
+   
+    "vhbt-val": ("vhbt/vhbt-val", "vhbt/annotations/custom-coco-instances-vhbt-val.json")
+}
+def register_all_bd_traffic(root):
+    # for prefix in ["novel",]: #"all", 
+    for shot in [1, 3]:
+        for seed in range(1, 10):
+            name = "vhbt_train_voc_{}_shot_seed{}".format(shot, seed)
+            _PREDEFINED_SPLITS_vhbt["vhbt"][name] = ("vhbt/vhbt-train", "vhbt/new_annotations/seed{}/{}_shot_instances_bd_traffic.json".format(seed, shot))
+
+            name = "vhbt_train_full_{}_shot_seed{}".format(shot, seed)
+            _PREDEFINED_SPLITS_vhbt["vhbt"][name] = ("vhbt/vhbt-train", "vhbt/new_annotations/seed{}/full_class_{}_shot_instances_bd_traffic.json".format(seed, shot))
+
+
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_vhbt.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_vhbt_instances(
+                key,
+                _get_builtin_metadata_bd_traffic("vhbt"),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
 
 # Register them all under "./datasets"
 _root = os.getenv("DETECTRON2_DATASETS", "datasets")
 register_all_coco(_root)
 _root = os.getenv("DETECTRON2_DATASETS", "datasets/pascal_voc")
 register_all_pascal_voc(_root)
+_root = os.getenv("DETECTRON2_DATASETS", "datasets")
+register_all_visdrone(_root)
+_root = os.getenv("DETECTRON2_DATASETS", "datasets")
+register_all_bd_traffic(_root)

@@ -7,6 +7,7 @@ Created on Wednesday, September 28, 2022
 from .dataset_mapper_pascal_voc import DatasetMapperWithSupportVOC
 from .dataset_mapper_coco import DatasetMapperWithSupportCOCO
 from .dataset_mapper_visdrone import DatasetMapperWithSupportVisdrone
+from .dataset_mapper_bd_traffic import DatasetMapperWithSupportvhbt
 
 from . import datasets  # isort:skip
 

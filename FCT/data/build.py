@@ -29,6 +29,7 @@ from detectron2.data.common import AspectRatioGroupedDataset, DatasetFromList, M
 from FCT.data.dataset_mapper_pascal_voc import DatasetMapperWithSupportVOC
 from FCT.data.dataset_mapper_coco import DatasetMapperWithSupportCOCO
 from FCT.data.dataset_mapper_visdrone import DatasetMapperWithSupportVisdrone
+from FCT.data.dataset_mapper_bd_traffic import DatasetMapperWithSupportvhbt
 from detectron2.data.detection_utils import check_metadata_consistency
 from detectron2.data.samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler
 
@@ -153,6 +154,9 @@ def build_detection_train_loader(cfg, mapper=None):
             mapper = DatasetMapperWithSupportVOC(cfg, True)
         elif 'visdrone' in cfg.DATASETS.TRAIN[0]:    
             mapper = DatasetMapperWithSupportVisdrone(cfg, True)
+        elif 'vhbt' in cfg.DATASETS.TRAIN[0]:    
+            mapper = DatasetMapperWithSupportvhbt(cfg, True)
+        
     dataset = MapDataset(dataset, mapper)
 
     sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
@@ -208,6 +212,8 @@ def build_detection_test_loader(cfg, dataset_name, mapper=None):
             mapper = DatasetMapperWithSupportVOC(cfg, False)
         elif 'visdrone' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportVisdrone(cfg, False)
+        elif 'vhbt' in cfg.DATASETS.TRAIN[0]:    
+            mapper = DatasetMapperWithSupportvhbt(cfg, False)
     dataset = MapDataset(dataset, mapper)
 
     sampler = InferenceSampler(len(dataset))

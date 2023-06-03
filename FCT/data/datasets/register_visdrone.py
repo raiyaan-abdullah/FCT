@@ -4,15 +4,15 @@ import os
 
 from detectron2.data import DatasetCatalog, MetadataCatalog
 
-from detectron2.data.datasets.coco import load_coco_json, load_sem_seg
-
+from detectron2.data.datasets.coco import load_coco_json
 """
 This file contains functions to register a COCO-format dataset to the DatasetCatalog.
 """
 
-__all__ = ["register_visdrone_instances", "register_coco_panoptic_separated"]
+# __all__ = ["register_visdrone_instances", "register_coco_panoptic_separated"]
+__all__ = ["register_visdrone_instances"]
 
-
+#def register_visdrone_instances(name, json_file, image_root):
 def register_visdrone_instances(name, metadata, json_file, image_root):
     """
     Register a dataset in COCO's json annotation format for

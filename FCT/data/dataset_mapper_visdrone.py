@@ -86,20 +86,20 @@ class DatasetMapperWithSupportVisdrone:
                         self.support_df = pd.read_pickle("./datasets/visdrone/full_class_{}_shot_support_df.pkl".format(cfg.INPUT.FS.SUPPORT_SHOT))
                         print("training support_df=", "./datasets/visdrone/full_class_{}_shot_support_df.pkl".format(cfg.INPUT.FS.SUPPORT_SHOT))
                     else:
-                        self.support_df = pd.read_pickle("./datasets/visdrone/visdronesplit/seed{}/full_class_{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
-                        print("training support_df=", "./datasets/visdrone/visdronesplit/seed{}/full_class_{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
+                        self.support_df = pd.read_pickle("./datasets/visdrone/seed{}/full_class_{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
+                        print("training support_df=", "./datasets/visdrone/seed{}/full_class_{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
                 else:
                     if self.seeds == 0:
                         self.support_df = pd.read_pickle("./datasets/visdrone/{}_shot_support_df.pkl".format(cfg.INPUT.FS.SUPPORT_SHOT))
                         print("training support_df=", "./datasets/visdrone/{}_shot_support_df.pkl".format(cfg.INPUT.FS.SUPPORT_SHOT))
                     else:
-                        self.support_df = pd.read_pickle("./datasets/visdrone/visdronesplit/seed{}/{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
-                        print("training support_df=", "./datasets/visdrone/visdronesplit/seed{}/{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
+                        self.support_df = pd.read_pickle("./datasets/visdrone/seed{}/{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
+                        print("training support_df=", "./datasets/visdrone/seed{}/{}_shot_support_df.pkl".format(self.seeds, cfg.INPUT.FS.SUPPORT_SHOT))
             else:
                 self.support_df = pd.read_pickle("./datasets/visdrone/train_support_df.pkl")
                 print("training support_df=./datasets/visdrone/train_support_df.pkl")
 
-            metadata = MetadataCatalog.get('visdrone_train')
+            metadata = MetadataCatalog.get('visdrone_train_nonvoc')
             # unmap the category mapping ids for COCO
             reverse_id_mapper = lambda dataset_id: metadata.thing_dataset_id_to_contiguous_id[dataset_id]  # noqa
             self.support_df['category_id'] = self.support_df['category_id'].map(reverse_id_mapper)
@@ -248,7 +248,8 @@ class DatasetMapperWithSupportVisdrone:
             support_db = self.support_df.loc[self.support_df['id'] == support_id, :]
             assert support_db['id'].values[0] == support_id
             
-            support_data = utils.read_image('./datasets/visdrone/' + support_db["file_path"].tolist()[0], format=self.img_format)
+            #support_data = utils.read_image('./datasets/visdrone/images/' + support_db["file_path"].tolist()[0], format=self.img_format)
+            support_data = utils.read_image(support_db["file_path"].tolist()[0], format=self.img_format)
             support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
             support_box = support_db['support_box'].tolist()[0]
             #print(support_data)
@@ -281,7 +282,8 @@ class DatasetMapperWithSupportVisdrone:
                     support_db = self.support_df.loc[self.support_df['id'] == support_id, :]
                     assert support_db['id'].values[0] == support_id
 
-                    support_data = utils.read_image('./datasets/visdrone/' + support_db["file_path"].tolist()[0], format=self.img_format)
+                    #support_data = utils.read_image('./datasets/visdrone/' + support_db["file_path"].tolist()[0], format=self.img_format)
+                    support_data = utils.read_image(support_db["file_path"].tolist()[0], format=self.img_format)
                     support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
                     support_box = support_db['support_box'].tolist()[0]
                     support_data_all[mixup_i] = support_data

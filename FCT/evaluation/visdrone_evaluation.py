@@ -77,11 +77,11 @@ class VisdroneEvaluator(DatasetEvaluator):
         self._metadata = MetadataCatalog.get(dataset_name)
         if not hasattr(self._metadata, "json_file"):
             self._logger.info(
-                f"'{dataset_name}' is not registered by `register_coco_instances`."
+                f"'{dataset_name}' is not registered by `register_visdrone_instances`."
                 " Therefore trying to convert it to COCO format ..."
             )
 
-            cache_path = os.path.join(output_dir, f"{dataset_name}_coco_format.json")
+            cache_path = os.path.join(output_dir, f"{dataset_name}_visdrone_format.json")
             self._metadata.json_file = cache_path
             convert_to_coco_json(dataset_name, cache_path)
 
@@ -323,7 +323,7 @@ class VisdroneEvaluator(DatasetEvaluator):
         precisions = coco_eval.eval["precision"]
         # precision has dims (iou, recall, cls, area range, max dets)
         assert len(class_names) == precisions.shape[2]
-
+       
         results_per_category = []
         voc_ls = []
         non_voc_ls = []
@@ -372,7 +372,7 @@ class VisdroneEvaluator(DatasetEvaluator):
         results["bAPs"] = non_voc_ap_small
         results["bAPm"] = non_voc_ap_medium
         results["bAPl"] = non_voc_ap_large
-
+        
         '''
         # log evaluation results in csv
         # type, AP, AP50, AP75, APs, APm, APl
@@ -471,6 +471,7 @@ def _evaluate_box_proposals(dataset_predictions, coco_api, class_names, mapper, 
     faster alternative to the official COCO API recall evaluation code. However,
     it produces slightly different results.
     """
+    
     # Record max overlap value for each gt box
     # Return vector of overlap values
     areas = {

@@ -1,0 +1,53 @@
+[05/28 11:32:25 d2.evaluation.evaluator]: Total inference time: 0:01:24.566139 (0.123635 s / iter per device, on 1 devices)
+[05/28 11:32:25 d2.evaluation.evaluator]: Total inference pure compute time: 0:01:23 (0.121615 s / iter per device, on 1 devices)
+[05/28 11:32:26 FCT.evaluation.visdrone_evaluation]: Preparing results for COCO format ...
+[05/28 11:32:26 FCT.evaluation.visdrone_evaluation]: Saving results to ./output/fsod/single_branch_pretraining_vbtv_pvt_v2_b2_li/inference/visdrone_instances_results.json
+[05/28 11:32:26 FCT.evaluation.visdrone_evaluation]: Evaluating predictions ...
+Loading and preparing results...
+DONE (t=0.21s)
+creating index...
+index created!
+[05/28 11:32:26 d2.evaluation.fast_eval_api]: Evaluate annotation type *bbox*
+[05/28 11:32:27 d2.evaluation.fast_eval_api]: COCOeval_opt.evaluate() finished in 0.70 seconds.
+[05/28 11:32:27 d2.evaluation.fast_eval_api]: Accumulating evaluation results...
+[05/28 11:32:27 d2.evaluation.fast_eval_api]: COCOeval_opt.accumulate() finished in 0.11 seconds.
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.040
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.102
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.025
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.018
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.053
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.056
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.023
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.063
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.083
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.047
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.103
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.110
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for bbox: 
+|  AP   |  AP50  |  AP75  |  APs  |  APm  |  APl  |
+|:-----:|:------:|:------:|:-----:|:-----:|:-----:|
+| 4.009 | 10.173 | 2.507  | 1.809 | 5.343 | 5.560 |
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> AP  : 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> AP50: 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> AP75: 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> APs : 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> APm : 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for VOC 20 categories =======> APl : 0.00
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> AP  : 4.01
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> AP50: 10.17
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> AP75: 2.51
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> APs : 1.81
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> APm : 5.34
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Evaluation results for Non VOC 60 categories =======> APl : 5.56
+[05/28 11:32:27 FCT.evaluation.visdrone_evaluation]: Per-category bbox AP: 
+| category   | AP     | category        | AP    | category   | AP    |
+|:-----------|:-------|:----------------|:------|:-----------|:------|
+| pedestrian | 3.069  | people          | 2.095 | bicycle    | 0.344 |
+| car        | 25.712 | van             | 7.695 | truck      | 5.598 |
+| tricycle   | 1.763  | awning-tricycle | 0.555 | bus        | 3.510 |
+| motor      | 2.753  | others          | 0.000 | rickshaw   | 4.527 |
+| leguna     | 0.000  | cng             | 2.510 | manual-van | 0.000 |
+[05/28 11:32:27 d2.engine.defaults]: Evaluation results for visdrone-val-half-bd-traffic in csv format:
+[05/28 11:32:27 d2.evaluation.testing]: copypaste: Task: bbox
+[05/28 11:32:27 d2.evaluation.testing]: copypaste: AP,AP50,AP75,APs,APm,APl,nAP,nAP50,nAP75,nAPs,nAPm,nAPl,bAP,bAP50,bAP75,bAPs,bAPm,bAPl
+[05/28 11:32:27 d2.evaluation.testing]: copypaste: 4.0087,10.1725,2.5068,1.8094,5.3432,5.5603,0.0000,0.0000,0.0000,0.0000,0.0000,0.0000,4.0087,10.1725,2.5068,1.8094,5.3432,5.5603

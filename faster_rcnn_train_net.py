@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+                #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
 """
@@ -16,7 +16,7 @@ from detectron2.engine import DefaultTrainer, default_argument_parser, default_s
 
 from FCT.config import get_cfg
 from FCT.data.build import build_detection_train_loader, build_detection_test_loader
-from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator
+from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator, VisdroneHalfBDTrafficEvaluator
 from FCT.solver import build_optimizer
 import FCT.modeling.fsod.pvt_roi_heads
 
@@ -40,8 +40,11 @@ class Trainer(DefaultTrainer):
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
         if 'coco' in dataset_name:
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
-        if 'visdrone' in dataset_name:
+        elif 'visdrone' in dataset_name:
             return VisdroneEvaluator(dataset_name, cfg, True, output_folder)
+        elif 'vhbt' in dataset_name:
+            return VisdroneHalfBDTrafficEvaluator(dataset_name, cfg, True, output_folder)
+        
         else:
             return PascalVOCDetectionEvaluator(dataset_name)
 
@@ -74,7 +77,7 @@ def setup(args):
 
 def main(args):
     cfg = setup(args)
-
+    args.eval_only =True
     if args.eval_only:
         model = Trainer.build_model(cfg)
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
@@ -91,6 +94,9 @@ def main(args):
 if __name__ == "__main__":
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
+    # args.config_file = 'configs/fsod/single_branch_pretraining_pascalvoc_split1_pvt_v2_b2_li.yaml'
+    # args.config_file = 'configs/fsod/single_branch_pretraining_visdrone_pvt_v2_b2_li.yaml'
+    args.config_file = 'configs/fsod/single_branch_pretraining_vbtv_pvt_v2_b2_li.yaml'
     launch(
         main,
         args.num_gpus,

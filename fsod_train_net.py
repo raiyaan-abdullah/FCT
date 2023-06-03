@@ -23,10 +23,10 @@ from detectron2.evaluation import (
 )
 
 from FCT.config import get_cfg
-from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC, DatasetMapperWithSupportVisdrone
+from FCT.data import DatasetMapperWithSupportCOCO, DatasetMapperWithSupportVOC, DatasetMapperWithSupportVisdrone, DatasetMapperWithSupportvhbt
 from FCT.data.build import build_detection_train_loader, build_detection_test_loader
 from FCT.solver import build_optimizer
-from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator
+from FCT.evaluation import COCOEvaluator, PascalVOCDetectionEvaluator, VisdroneEvaluator, VhbtEvaluator
 
 import bisect
 import copy
@@ -52,7 +52,9 @@ class Trainer(DefaultTrainer):
         DatasetMapper, which adds categorical labels as a semantic mask.
         """
         if 'coco' in cfg.DATASETS.TRAIN[0]:
-            mapper = DatasetMapperWithSupportCOCO(cfg)
+            mapper = DatasetMapperWithSupportCOCO(cfg)    
+        if 'vhbt' in cfg.DATASETS.TRAIN[0]:
+            mapper = DatasetMapperWithSupportvhbt(cfg)
         if 'visdrone' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportVisdrone(cfg)
         else:
@@ -87,6 +89,8 @@ class Trainer(DefaultTrainer):
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
         if 'visdrone' in dataset_name:
             return VisdroneEvaluator(dataset_name, cfg, True, output_folder)
+        elif 'vhbt' in dataset_name:
+            return VhbtEvaluator(dataset_name, cfg, True, output_folder)
         else:
             return PascalVOCDetectionEvaluator(dataset_name)
 
@@ -218,6 +222,16 @@ class Trainer(DefaultTrainer):
                 coco_test_shots_set = set([1,2,3,5,10,30])
                 test_shots_join = cur_test_shots_set.intersection(coco_test_shots_set)
                 test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
+            elif 'visdrone' in cfg.DATASETS.TRAIN[0]:
+                evaluation_dataset = 'visdrone'
+                visdrone_test_shots_set = set([1,2,3,5,10,30])
+                test_shots_join = cur_test_shots_set.intersection(visdrone_test_shots_set)
+                test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
+            elif 'Vhbt' in cfg.DATASETS.TRAIN[0]:
+                evaluation_dataset = 'vhbt'
+                visdrone_test_shots_set = set([1,3])
+                test_shots_join = cur_test_shots_set.intersection(visdrone_test_shots_set)
+                test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
             else:
                 evaluation_dataset = 'voc'
                 voc_test_shots_set = set([1,2,3,5,10])
@@ -289,7 +303,9 @@ def main(args):
 if __name__ == "__main__":
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
-    args.config_file = 'configs/fsod/two_branch_training_pascalvoc_split1_pvt_v2_b2_li.yaml'
+    # args.config_file = 'configs/fsod/two_branch_training_pascalvoc_split1_pvt_v2_b2_li.yaml'
+    # args.config_file = 'configs/fsod/two_branch_training_visdrone_pvt_v2_b2_li.yaml'
+    args.config_file = 'configs/fsod/two_branch_training_vbtv_pvt_v2_b2_li.yaml'
     launch(
         main,
         args.num_gpus,
