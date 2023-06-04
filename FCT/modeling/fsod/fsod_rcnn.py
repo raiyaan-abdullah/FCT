@@ -84,6 +84,8 @@ class FsodRCNN(nn.Module):
             self.init_model_coco()
         elif self.evaluation_dataset == 'visdrone':
             self.init_model_visdrone()
+        elif self.evaluation_dataset == 'vhbt':
+            self.init_model_vhbt()
 
     @property
     def device(self):
@@ -437,6 +439,54 @@ class FsodRCNN(nn.Module):
 
                 for index, support_img_df in support_cls_df.iterrows():
                     img_path = os.path.join('./datasets/visdrone', support_img_df['file_path'])
+                    support_data = utils.read_image(img_path, format='BGR')
+                    support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
+                    support_data_all.append(support_data)
+
+                    support_box = support_img_df['support_box']
+                    support_box_all.append(Boxes([support_box]).to(self.device))
+
+                min_shot = min(min_shot, len(support_box_all))
+                max_shot = max(max_shot, len(support_box_all))
+                # support images
+                support_images = [x.to(self.device) for x in support_data_all]
+                support_images = [(x - self.pixel_mean) / self.pixel_std for x in support_images]
+                support_images = ImageList.from_tensors(support_images, self.backbone.size_divisibility)
+                self.support_dict['image'][cls] = support_images
+                self.support_dict['box'][cls] = support_box_all
+
+            print("min_shot={}, max_shot={}".format(min_shot, max_shot))
+    
+    def init_model_vhbt(self):
+        if 1:
+            if self.keepclasses == 'all':
+                if self.test_seeds == 0:
+                    support_path = './datasets/vhbt/full_class_{}_shot_support_df.pkl'.format(self.evaluation_shot)
+                elif self.test_seeds > 0:
+                    support_path = './datasets/vhbt/seed{}/full_class_{}_shot_support_df.pkl'.format(self.test_seeds, self.evaluation_shot)
+            else:
+                if self.test_seeds == 0:
+                    support_path = './datasets/vhbt/{}_shot_support_df.pkl'.format(self.evaluation_shot)
+                elif self.test_seeds > 0:
+                    support_path = './datasets/vhbt/seed{}/{}_shot_support_df.pkl'.format(self.test_seeds, self.evaluation_shot)
+
+            support_df = pd.read_pickle(support_path)
+
+            metadata = MetadataCatalog.get('vhbt_train_nonvoc')
+            # unmap the category mapping ids for COCO
+            reverse_id_mapper = lambda dataset_id: metadata.thing_dataset_id_to_contiguous_id[dataset_id]  # noqa
+            support_df['category_id'] = support_df['category_id'].map(reverse_id_mapper)
+
+            min_shot = self.evaluation_shot
+            max_shot = self.evaluation_shot
+            self.support_dict = {'image': {}, 'box': {}}
+            for cls in support_df['category_id'].unique():
+                support_cls_df = support_df.loc[support_df['category_id'] == cls, :].reset_index()
+                support_data_all = []
+                support_box_all = []
+
+                for index, support_img_df in support_cls_df.iterrows():
+                    img_path = os.path.join('./datasets/vhbt', support_img_df['file_path'])
                     support_data = utils.read_image(img_path, format='BGR')
                     support_data = torch.as_tensor(np.ascontiguousarray(support_data.transpose(2, 0, 1)))
                     support_data_all.append(support_data)

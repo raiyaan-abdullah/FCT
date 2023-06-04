@@ -53,9 +53,9 @@ class Trainer(DefaultTrainer):
         """
         if 'coco' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportCOCO(cfg)    
-        if 'vhbt' in cfg.DATASETS.TRAIN[0]:
+        elif 'vhbt' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportvhbt(cfg)
-        if 'visdrone' in cfg.DATASETS.TRAIN[0]:
+        elif 'visdrone' in cfg.DATASETS.TRAIN[0]:
             mapper = DatasetMapperWithSupportVisdrone(cfg)
         else:
             mapper = DatasetMapperWithSupportVOC(cfg)
@@ -85,9 +85,9 @@ class Trainer(DefaultTrainer):
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
         if output_folder is None:
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
-        if 'coco' in dataset_name:
+        elif 'coco' in dataset_name:
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
-        if 'visdrone' in dataset_name:
+        elif 'visdrone' in dataset_name:
             return VisdroneEvaluator(dataset_name, cfg, True, output_folder)
         elif 'vhbt' in dataset_name:
             return VhbtEvaluator(dataset_name, cfg, True, output_folder)
@@ -227,7 +227,7 @@ class Trainer(DefaultTrainer):
                 visdrone_test_shots_set = set([1,2,3,5,10,30])
                 test_shots_join = cur_test_shots_set.intersection(visdrone_test_shots_set)
                 test_keepclasses = cfg.DATASETS.TEST_KEEPCLASSES
-            elif 'Vhbt' in cfg.DATASETS.TRAIN[0]:
+            elif 'vhbt' in cfg.DATASETS.TRAIN[0]:
                 evaluation_dataset = 'vhbt'
                 visdrone_test_shots_set = set([1,3])
                 test_shots_join = cur_test_shots_set.intersection(visdrone_test_shots_set)
@@ -305,7 +305,7 @@ if __name__ == "__main__":
     print("Command Line Args:", args)
     # args.config_file = 'configs/fsod/two_branch_training_pascalvoc_split1_pvt_v2_b2_li.yaml'
     # args.config_file = 'configs/fsod/two_branch_training_visdrone_pvt_v2_b2_li.yaml'
-    args.config_file = 'configs/fsod/two_branch_training_vbtv_pvt_v2_b2_li.yaml'
+    # args.config_file = 'configs/fsod/two_branch_training_vhbt_pvt_v2_b2_li.yaml'
     launch(
         main,
         args.num_gpus,

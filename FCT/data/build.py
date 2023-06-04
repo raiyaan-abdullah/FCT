@@ -29,7 +29,7 @@ from detectron2.data.common import AspectRatioGroupedDataset, DatasetFromList, M
 from FCT.data.dataset_mapper_pascal_voc import DatasetMapperWithSupportVOC
 from FCT.data.dataset_mapper_coco import DatasetMapperWithSupportCOCO
 from FCT.data.dataset_mapper_visdrone import DatasetMapperWithSupportVisdrone
-from FCT.data.dataset_mapper_bd_traffic import DatasetMapperWithSupportvhbt
+from FCT.data.dataset_mapper_vhbt import DatasetMapperWithSupportvhbt
 from detectron2.data.detection_utils import check_metadata_consistency
 from detectron2.data.samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler
 

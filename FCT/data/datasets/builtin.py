@@ -7,11 +7,11 @@ import os
 
 from register_coco import register_coco_instances
 from register_visdrone import register_visdrone_instances
-from register_bd_traffic import register_vhbt_instances
+from register_vhbt import register_vhbt_instances
 from detectron2.data.datasets.builtin_meta import _get_builtin_metadata
 from builtin_meta_pascal_voc import _get_builtin_metadata_pascal_voc
 from builtin_meta_visdrone import _get_builtin_metadata_visdrone
-from builtin_meta_bd_traffic import _get_builtin_metadata_bd_traffic
+from builtin_meta_vhbt import _get_builtin_metadata_vhbt
 from meta_pascal_voc import register_meta_pascal_voc
 from detectron2.data import MetadataCatalog
 
@@ -156,7 +156,7 @@ def register_all_visdrone(root):
 _PREDEFINED_SPLITS_vhbt = {}
 _PREDEFINED_SPLITS_vhbt["vhbt"] = {
     # "vhbt-train": ("vhbt/vhbt-train","vhbt/annotations/custom-coco-instances-vhbt.json"),
-    "vhbt-train-nonvoc": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_non_voc_instances_bd_traffic.json"), # by default no_smaller_32
+    "vhbt_train_nonvoc": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_non_voc_instances_bd_traffic.json"), # by default no_smaller_32
 
     "vhbt_train_voc_1_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_novel_1_shot_instances_bd_traffic.json"),
     "vhbt_train_voc_3_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/final_split_novel_3_shot_instances_bd_traffic.json"),
@@ -166,9 +166,9 @@ _PREDEFINED_SPLITS_vhbt["vhbt"] = {
     "vhbt_train_full_1_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/full_class_1_shot_instances_bd_traffic.json"),
     "vhbt_train_full_3_shot": ("vhbt/vhbt-train", "vhbt/new_annotations/full_class_3_shot_instances_bd_traffic.json"),
    
-    "vhbt-val": ("vhbt/vhbt-val", "vhbt/annotations/custom-coco-instances-vhbt-val.json")
+    "vhbt_val": ("vhbt/vhbt-val", "vhbt/annotations/custom-coco-instances-vhbt-val.json")
 }
-def register_all_bd_traffic(root):
+def register_all_vhbt(root):
     # for prefix in ["novel",]: #"all", 
     for shot in [1, 3]:
         for seed in range(1, 10):
@@ -184,7 +184,7 @@ def register_all_bd_traffic(root):
             # Assume pre-defined datasets live in `./datasets`.
             register_vhbt_instances(
                 key,
-                _get_builtin_metadata_bd_traffic("vhbt"),
+                _get_builtin_metadata_vhbt("vhbt"),
                 os.path.join(root, json_file) if "://" not in json_file else json_file,
                 os.path.join(root, image_root),
             )
@@ -197,4 +197,4 @@ register_all_pascal_voc(_root)
 _root = os.getenv("DETECTRON2_DATASETS", "datasets")
 register_all_visdrone(_root)
 _root = os.getenv("DETECTRON2_DATASETS", "datasets")
-register_all_bd_traffic(_root)
+register_all_vhbt(_root)
